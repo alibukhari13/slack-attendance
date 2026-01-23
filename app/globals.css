@@ -1,3 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom Scrollbar for Luxury Look */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #0b1014; }
+::-webkit-scrollbar-thumb { background: #357a58; border-radius: 10px; }

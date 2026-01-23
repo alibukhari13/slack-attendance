@@ -29,12 +29,11 @@ export async function POST(req: Request) {
       const pktTime = dateObj.toLocaleTimeString('en-US', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: true });
       const pktDate = dateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 
-      // Image URL fetch (agar image upload ki ho)
       const imageUrl = files && files.length > 0 ? files[0].url_private_download : null;
       const type = channel === CHECK_IN_CHANNEL ? 'Check-In' : channel === CHECK_OUT_CHANNEL ? 'Check-Out' : 'Message';
 
-      // Har entry ka unique ID 'ts' hoga taake multiple entries save hon
-      await setDoc(doc(db, "attendance", ts), {
+      // 'ts' unique ID hai, taake har message save ho
+      await setDoc(doc(db, "attendance", ts.replace('.', '-')), {
         userId: user,
         userName: userName,
         date: pktDate,
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
         imageUrl: imageUrl,
         type: type,
         timestamp: serverTimestamp(),
-        ts: ts // Original slack timestamp for sorting
+        ts: ts 
       });
     }
     return NextResponse.json({ ok: true });
