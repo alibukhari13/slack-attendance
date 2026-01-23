@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
+// HARDCODED SECRETS
+const SLACK_BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
 const CHECK_IN_CHANNEL = "C0ABB105W3S";
 const CHECK_OUT_CHANNEL = "C0AAGM79J6N";
-const SLACK_BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
 
-// Function to fetch User Name from Slack
 async function getSlackUserName(userId: string) {
   try {
     const response = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
@@ -29,11 +29,8 @@ export async function POST(req: Request) {
 
     if (body.event && body.event.type === 'message' && !body.event.bot_id) {
       const { user, channel, ts } = body.event;
-      
-      // Get Real Name and Proper PKT Time
       const userName = await getSlackUserName(user);
       
-      // Convert to Pakistan Time (UTC+5)
       const dateObj = new Date(parseFloat(ts) * 1000);
       const pktTime = dateObj.toLocaleTimeString('en-US', {
         timeZone: 'Asia/Karachi',
@@ -49,7 +46,7 @@ export async function POST(req: Request) {
       if (channel === CHECK_IN_CHANNEL) {
         await setDoc(docRef, {
           userId: user,
-          userName: userName, // Saving Real Name
+          userName: userName,
           date: pktDate,
           checkIn: pktTime,
           status: 'Present',
