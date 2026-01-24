@@ -1,8 +1,108 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Custom Scrollbar for Luxury Look */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: #0b1014; }
-::-webkit-scrollbar-thumb { background: #357a58; border-radius: 10px; }
+@layer base {
+  body {
+    @apply antialiased;
+  }
+  
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #111827;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(to bottom, #d97706, #b45309);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(to bottom, #f59e0b, #d97706);
+  }
+  
+  ::selection {
+    background-color: rgba(245, 158, 11, 0.3);
+    color: white;
+  }
+}
+
+@layer components {
+  .glass-effect {
+    @apply backdrop-blur-xl bg-black/20 border border-white/10;
+  }
+  
+  .gradient-border {
+    @apply relative;
+  }
+  
+  .gradient-border::before {
+    content: '';
+    @apply absolute inset-0 rounded-2xl p-px bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 -z-10;
+  }
+  
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 15s ease infinite;
+  }
+  
+  .animate-in {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .slide-in-from-top {
+    animation-name: slideInFromTop;
+  }
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes slideInFromTop {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Print styles for reports */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  .print-section, .print-section * {
+    visibility: visible;
+  }
+  
+  .print-section {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+}

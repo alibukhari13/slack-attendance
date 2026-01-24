@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       const imageUrl = files && files.length > 0 ? files[0].url_private_download : null;
       const type = channel === CHECK_IN_CHANNEL ? 'Check-In' : channel === CHECK_OUT_CHANNEL ? 'Check-Out' : 'Message';
 
-      // 'ts' unique ID hai, taake har message save ho
+      // 'ts' unique ID hai, taake har message save ho aur history banay
       await setDoc(doc(db, "attendance", ts.replace('.', '-')), {
         userId: user,
         userName: userName,
