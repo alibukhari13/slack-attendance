@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, Shield, Zap, Users, ArrowRight, CheckCircle } from 'lucide-react';
+import { Activity, Shield, Zap, Users, ArrowRight, CheckCircle, MessageSquare } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -21,13 +21,22 @@ export default function Home() {
                 Attendance Pro
               </span>
             </div>
-            <Link
-              href="/dashboard"
-              className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 rounded-lg font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/20 transition-all duration-300 flex items-center gap-2"
-            >
-              Launch Dashboard
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+            <div className="flex gap-4">
+              <Link
+                href="/channels"
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-lg font-semibold text-sm hover:shadow-lg hover:shadow-blue-500/20 transition-all duration-300 flex items-center gap-2"
+              >
+                <MessageSquare className="h-4 w-4" />
+                Slack Channels
+              </Link>
+              <Link
+                href="/dashboard"
+                className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 rounded-lg font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/20 transition-all duration-300 flex items-center gap-2"
+              >
+                Launch Dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
         </nav>
         
@@ -55,12 +64,17 @@ export default function Home() {
               href="/dashboard"
               className="px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 rounded-xl font-semibold text-lg hover:shadow-2xl hover:shadow-amber-500/30 transition-all duration-300 flex items-center justify-center gap-3 group"
             >
-              Get Started
+              Open Dashboard
               <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
             </Link>
-            <button className="px-8 py-4 bg-gray-900/50 hover:bg-gray-800/50 border border-gray-800 rounded-xl font-semibold text-lg transition-all duration-300">
-              Schedule Demo
-            </button>
+            <Link
+              href="/channels"
+              className="px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 rounded-xl font-semibold text-lg hover:shadow-2xl hover:shadow-blue-500/30 transition-all duration-300 flex items-center justify-center gap-3 group"
+            >
+              <MessageSquare className="h-5 w-5" />
+              Manage Slack Channels
+              <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+            </Link>
           </div>
           
           {/* Features Grid */}
