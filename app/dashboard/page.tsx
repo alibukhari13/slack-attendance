@@ -248,7 +248,6 @@ export default function Dashboard() {
     return Array.from(userMap.values()).map(user => ({
       employeeName: user.userName,
       employeeId: user.userId,
-      // FIX APPLIED HERE: Added (a: any, b: any) to solve the red line error
       days: Array.from(user.days.values()).sort((a: any, b: any) => {
         // Safe date comparison
         const dateA = safeParseDate(a.date);
@@ -385,76 +384,79 @@ export default function Dashboard() {
   const exportToPDF = (data: any[], fileName: string, isSingleUser = false) => {
     const doc = new jsPDF();
 
-    // Add header
-    doc.setFontSize(20);
-    doc.setTextColor(40, 40, 40);
-    doc.text('ATTENDANCE REPORT', 105, 15, { align: 'center' });
-
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`, 105, 22, { align: 'center' });
-
-    let yPos = 30;
-
     if (isSingleUser && data.length > 0) {
       const user = data[0];
+      
+      // Professional Header Design for Single User
+      doc.setFillColor(245, 158, 11); // Amber-500
+      doc.rect(0, 0, 210, 40, 'F');
+      
+      doc.setFontSize(22);
+      doc.setTextColor(255, 255, 255);
+      doc.text('PERSONNEL ATTENDANCE LOG', 105, 18, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
 
-      // User info
-      doc.setFontSize(12);
+      // Employee Information Block
+      doc.setFillColor(243, 244, 246);
+      doc.rect(14, 45, 182, 25, 'F');
+      
       doc.setTextColor(40, 40, 40);
-      doc.text(`Employee: ${user.employeeName}`, 14, yPos);
-      doc.text(`ID: ${user.employeeId}`, 14, yPos + 7);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Employee: ${user.employeeName}`, 20, 55);
+      doc.text(`Employee ID: ${user.employeeId}`, 20, 63);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Total Records: ${user.days.length}`, 140, 59);
 
-      yPos += 20;
-
-      // Table headers
-      const headers = [['Date', 'Check-In Time', 'Check-In Message', 'Check-Out Time', 'Check-Out Message']];
-
-      // Table data
+      // Table for Detailed History
+      const headers = [['Date', 'Arrival (IN)', 'Message', 'Departure (OUT)', 'Message']];
       const tableData = user.days.map((day: any) => [
         day.date,
         day.checkIn?.time || '-',
-        (day.checkIn?.message || '-').substring(0, 40),
+        (day.checkIn?.message || '-'),
         day.checkOut?.time || '-',
-        (day.checkOut?.message || '-').substring(0, 40)
+        (day.checkOut?.message || '-')
       ]);
 
       autoTable(doc, {
         head: headers,
         body: tableData,
-        startY: yPos,
-        theme: 'grid',
-        headStyles: { fillColor: [59, 130, 246] },
-        margin: { top: 10 }
+        startY: 80,
+        theme: 'striped',
+        headStyles: { fillColor: [31, 41, 55], textColor: [255, 255, 255], fontSize: 10, halign: 'center' },
+        styles: { fontSize: 9, cellPadding: 4, halign: 'center' },
+        columnStyles: {
+          2: { halign: 'left', cellWidth: 40 },
+          4: { halign: 'left', cellWidth: 40 }
+        }
       });
     } else {
       // Summary for all users
-      doc.setFontSize(12);
-      doc.text(`Total Employees: ${data.length}`, 14, yPos);
-      yPos += 10;
+      doc.setFontSize(20);
+      doc.setTextColor(40, 40, 40);
+      doc.text('ATTENDANCE SUMMARY REPORT', 105, 15, { align: 'center' });
+
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`, 105, 22, { align: 'center' });
 
       const headers = [['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Status']];
-
       const tableData = data.map(user => {
         const totalDays = user.days.length;
         const checkIns = user.days.filter((day: any) => day.checkIn).length;
         const checkOuts = user.days.filter((day: any) => day.checkOut).length;
         const status = checkIns > 0 ? 'Active' : 'Inactive';
 
-        return [
-          user.employeeName,
-          user.employeeId,
-          totalDays.toString(),
-          checkIns.toString(),
-          checkOuts.toString(),
-          status
-        ];
+        return [user.employeeName, user.employeeId, totalDays.toString(), checkIns.toString(), checkOuts.toString(), status];
       });
 
       autoTable(doc, {
         head: headers,
         body: tableData,
-        startY: yPos,
+        startY: 35,
         theme: 'grid',
         headStyles: { fillColor: [59, 130, 246] },
         margin: { top: 10 },
@@ -469,10 +471,14 @@ export default function Dashboard() {
   const handleExport = (data: any[], fileName: string, isSingleUser = false) => {
     const reportData = getDetailedReportData(data);
 
-    if (exportFormat === 'excel') {
-      exportToExcelDetailed(reportData, fileName, isSingleUser);
+    if (isSingleUser) {
+      exportToPDF(reportData, fileName, true);
     } else {
-      exportToPDF(reportData, fileName, isSingleUser);
+      if (exportFormat === 'excel') {
+        exportToExcelDetailed(reportData, fileName, isSingleUser);
+      } else {
+        exportToPDF(reportData, fileName, isSingleUser);
+      }
     }
   };
 
@@ -962,7 +968,7 @@ export default function Dashboard() {
                               handleExport(userLogs, `Attendance_${row.userName}_Report`, true);
                             }}
                             className="p-2 hover:bg-green-500/10 rounded-lg text-gray-400 hover:text-green-400 transition-colors"
-                            title="Export individual report"
+                            title="Export individual PDF report"
                           >
                             <Download className="h-4 w-4" />
                           </button>
@@ -1116,7 +1122,7 @@ export default function Dashboard() {
                                 </td>
                                 <td className="py-4">
                                   <div className="flex gap-2">
-                                    {day.checkIn?.image !== 'No image' && (
+                                    {day.checkIn && day.checkIn.image !== 'No image' && (
                                       <a
                                         href={day.checkIn.image}
                                         target="_blank"
@@ -1126,7 +1132,7 @@ export default function Dashboard() {
                                         Check-In Image
                                       </a>
                                     )}
-                                    {day.checkOut?.image !== 'No image' && (
+                                    {day.checkOut && day.checkOut.image !== 'No image' && (
                                       <a
                                         href={day.checkOut.image}
                                         target="_blank"
@@ -1136,7 +1142,7 @@ export default function Dashboard() {
                                         Check-Out Image
                                       </a>
                                     )}
-                                    {(day.checkIn?.image === 'No image' && day.checkOut?.image === 'No image') && (
+                                    {((!day.checkIn || day.checkIn.image === 'No image') && (!day.checkOut || day.checkOut.image === 'No image')) && (
                                       <span className="text-gray-500 text-xs">No attachments</span>
                                     )}
                                   </div>
@@ -1153,50 +1159,27 @@ export default function Dashboard() {
                 {/* Export Options */}
                 <div className="bg-gray-900/30 rounded-xl p-6">
                   <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Download className="h-5 w-5 text-green-400" />
-                    Export Options for {selectedUserDetails.userName}
+                    <Download className="h-5 w-5 text-amber-400" />
+                    Download Detailed PDF Report
                   </h4>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-800">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="p-2 bg-green-500/10 rounded-lg">
-                          <FileSpreadsheet className="h-5 w-5 text-green-400" />
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="p-6 bg-gray-800/30 rounded-lg border border-gray-800 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 bg-amber-500/10 rounded-xl">
+                          <FileText className="h-8 w-8 text-amber-400" />
                         </div>
                         <div>
-                          <p className="font-medium text-white">Excel Report</p>
-                          <p className="text-sm text-gray-400">Detailed daily attendance with messages</p>
+                          <p className="font-bold text-lg text-white">Professional PDF Document</p>
+                          <p className="text-sm text-gray-400">Detailed logs, arrival/departure times, and employee metadata</p>
                         </div>
                       </div>
                       <button
-                        onClick={() => {
-                          setExportFormat('excel');
-                          handleExportUserHistory();
-                        }}
-                        className="w-full mt-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-lg text-sm font-medium transition-colors"
+                        onClick={handleExportUserHistory}
+                        className="px-8 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:shadow-lg hover:shadow-amber-500/20 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
                       >
-                        Export as Excel
-                      </button>
-                    </div>
-
-                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-800">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="p-2 bg-red-500/10 rounded-lg">
-                          <FileText className="h-5 w-5 text-red-400" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-white">PDF Report</p>
-                          <p className="text-sm text-gray-400">Professional formatted document</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setExportFormat('pdf');
-                          handleExportUserHistory();
-                        }}
-                        className="w-full mt-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm font-medium transition-colors"
-                      >
-                        Export as PDF
+                        <Download className="h-5 w-5" />
+                        Download Report
                       </button>
                     </div>
                   </div>
@@ -1204,7 +1187,7 @@ export default function Dashboard() {
                   <div className="mt-4 text-sm text-gray-400">
                     <p className="flex items-center gap-2">
                       <ExternalLink className="h-4 w-4" />
-                      Reports include: Daily check-in/out times, messages, attachment status, and attendance summary
+                      Note: Single employee reports are generated exclusively in PDF format for professional consistency.
                     </p>
                   </div>
                 </div>
@@ -1229,7 +1212,7 @@ export default function Dashboard() {
                     className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:shadow-lg hover:shadow-amber-500/20 rounded-lg font-medium transition-all flex items-center gap-2"
                   >
                     <Download className="h-4 w-4" />
-                    Export Detailed Report
+                    Export PDF
                   </button>
                 </div>
               </div>
