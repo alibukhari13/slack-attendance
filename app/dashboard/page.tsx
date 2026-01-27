@@ -921,6 +921,18 @@ export default function Dashboard() {
                                 src={row.userProfilePicture} 
                                 alt={row.userName}
                                 className="h-12 w-12 rounded-xl object-cover border-2 border-gray-700 group-hover:border-amber-500/50 transition-all duration-300"
+                                onError={(e) => {
+                                  // Fallback to initial if image fails to load
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    const fallbackDiv = document.createElement('div');
+                                    fallbackDiv.className = 'h-12 w-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl flex items-center justify-center font-bold text-lg group-hover:from-amber-900/30 group-hover:to-amber-900/10 transition-all duration-300';
+                                    fallbackDiv.textContent = row.userName?.charAt(0) || 'U';
+                                    parent.appendChild(fallbackDiv);
+                                  }
+                                }}
                               />
                             ) : (
                               <div className="h-12 w-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl flex items-center justify-center font-bold text-lg group-hover:from-amber-900/30 group-hover:to-amber-900/10 transition-all duration-300">
@@ -1054,6 +1066,17 @@ export default function Dashboard() {
                       src={selectedUserDetails.userProfilePicture} 
                       alt={selectedUserDetails.userName}
                       className="h-16 w-16 rounded-xl object-cover border-2 border-amber-500/50"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          const fallbackDiv = document.createElement('div');
+                          fallbackDiv.className = 'h-16 w-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center text-2xl font-bold';
+                          fallbackDiv.textContent = selectedUserDetails.userName?.charAt(0) || 'U';
+                          parent.appendChild(fallbackDiv);
+                        }
+                      }}
                     />
                   ) : (
                     <div className="h-16 w-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center text-2xl font-bold">

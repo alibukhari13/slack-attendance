@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { emojify, get } from 'node-emoji';
 
 const SLACK_BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
 const CHECK_IN_CHANNEL = "C0ABB105W3S";
 const CHECK_OUT_CHANNEL = "C0AAGM79J6N";
-const LEAVE_CHANNEL = "C0AACUQMB9D"; // New leave channel
+const LEAVE_CHANNEL = "C0AACUQMB9D";
 
 async function getSlackUserInfo(userId: string) {
   try {
@@ -32,22 +31,108 @@ async function getSlackUserInfo(userId: string) {
   }
 }
 
-// Convert emoji codes to actual emoji characters
-function convertEmoji(text: string): string {
+// Simple emoji mapping for common Slack emojis
+const emojiMap: Record<string, string> = {
+  // Check marks
+  ':white_check_mark:': '✅',
+  ':heavy_check_mark:': '✅',
+  ':ballot_box_with_check:': '☑️',
+  
+  // Status
+  ':x:': '❌',
+  ':heavy_multiplication_x:': '✖️',
+  ':heavy_plus_sign:': '➕',
+  ':heavy_minus_sign:': '➖',
+  
+  // Arrows
+  ':arrow_right:': '➡️',
+  ':arrow_left:': '⬅️',
+  ':arrow_up:': '⬆️',
+  ':arrow_down:': '⬇️',
+  
+  // Common symbols
+  ':warning:': '⚠️',
+  ':exclamation:': '❗',
+  ':question:': '❓',
+  ':information_source:': 'ℹ️',
+  
+  // Faces
+  ':smile:': '😄',
+  ':smiley:': '😃',
+  ':grinning:': '😀',
+  ':blush:': '😊',
+  ':wink:': '😉',
+  ':slightly_smiling_face:': '🙂',
+  ':neutral_face:': '😐',
+  ':confused:': '😕',
+  ':frowning:': '😦',
+  
+  // Flags
+  ':flag-pk:': '🇵🇰',
+  ':flag-us:': '🇺🇸',
+  ':flag-gb:': '🇬🇧',
+  
+  // Time
+  ':clock1:': '🕐',
+  ':clock2:': '🕑',
+  ':clock3:': '🕒',
+  ':clock4:': '🕓',
+  ':clock5:': '🕔',
+  ':clock6:': '🕕',
+  ':clock7:': '🕖',
+  ':clock8:': '🕗',
+  ':clock9:': '🕘',
+  ':clock10:': '🕙',
+  ':clock11:': '🕚',
+  ':clock12:': '🕛',
+  
+  // Weather
+  ':sunny:': '☀️',
+  ':cloud:': '☁️',
+  ':rain_cloud:': '🌧️',
+  ':snow_cloud:': '🌨️',
+  
+  // Hands
+  ':raised_hands:': '🙌',
+  ':clap:': '👏',
+  ':thumbsup:': '👍',
+  ':thumbsdown:': '👎',
+  ':ok_hand:': '👌',
+  ':v:': '✌️',
+  ':pray:': '🙏',
+  
+  // Objects
+  ':computer:': '💻',
+  ':phone:': '📱',
+  ':envelope:': '✉️',
+  ':incoming_envelope:': '📨',
+  ':email:': '📧',
+  ':calendar:': '📅',
+  ':clock:': '🕰️',
+  ':alarm_clock:': '⏰',
+  ':hourglass:': '⏳',
+  
+  // Leaves/Time off
+  ':palm_tree:': '🌴',
+  ':beach:': '🏖️',
+  ':airplane:': '✈️',
+  ':car:': '🚗',
+  ':hospital:': '🏥',
+  ':hotel:': '🏨',
+  ':house:': '🏠',
+  ':office:': '🏢',
+};
+
+// Function to convert emoji codes to actual emojis
+function convertEmojis(text: string): string {
   if (!text) return '';
   
-  // First convert Slack emoji format (:emoji_name:) to actual emoji
-  let convertedText = emojify(text);
+  let convertedText = text;
   
-  // Handle custom Slack emojis
-  convertedText = convertedText.replace(/:[a-zA-Z0-9_+-]+:/g, (match) => {
-    const emojiName = match.slice(1, -1);
-    // Try to get the emoji from node-emoji first
-    const standardEmoji = get(emojiName);
-    if (standardEmoji) return standardEmoji;
-    
-    // Return the original if not found
-    return match;
+  // Replace all known emoji codes
+  Object.keys(emojiMap).forEach(emojiCode => {
+    const regex = new RegExp(emojiCode, 'g');
+    convertedText = convertedText.replace(regex, emojiMap[emojiCode]);
   });
   
   return convertedText;
@@ -91,8 +176,8 @@ export async function POST(req: Request) {
         type = 'Leave';
       }
 
-      // Convert emoji codes to actual emoji
-      const processedText = convertEmoji(text || "");
+      // Convert emoji codes to actual emojis
+      const processedText = convertEmojis(text || "");
 
       // Get image from attachments if available
       const imageUrl = files && files.length > 0 ? files[0].url_private_download : null;
