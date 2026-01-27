@@ -3,19 +3,22 @@
 import { useEffect, useState, useMemo } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, onSnapshot, orderBy, deleteDoc, doc, Timestamp } from 'firebase/firestore';
-import {
-  Clock,
-  Users,
-  Activity,
-  CheckCircle,
-  XCircle,
-  Download,
-  Filter,
-  Search,
+import { 
+  Clock, 
+  Users, 
+  Activity, 
+  CheckCircle, 
+  XCircle, 
+  Download, 
+  Filter, 
+  Search, 
+  Calendar,
   ChevronRight,
   Trash2,
   Eye,
+  MoreVertical,
   TrendingUp,
+  UserCheck,
   BarChart3,
   X,
   ChevronDown,
@@ -25,7 +28,10 @@ import {
   Calendar as CalendarIcon,
   FileSpreadsheet,
   ExternalLink,
-  DownloadCloud
+  DownloadCloud,
+  Home,
+  LogOut,
+  CatIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -36,16 +42,13 @@ import autoTable from 'jspdf-autotable';
 // Helper function to safely parse dates
 const safeParseDate = (dateString: string | undefined): Date => {
   if (!dateString) return new Date(0);
-
-  // Try parsing ISO format first
+  
   const date = parseISO(dateString);
   if (isValid(date)) return date;
-
-  // Try parsing as regular date
+  
   const parsed = new Date(dateString);
   if (isValid(parsed)) return parsed;
-
-  // Return epoch date as fallback
+  
   return new Date(0);
 };
 
@@ -69,7 +72,7 @@ export default function Dashboard() {
       const logsData = snapshot.docs.map(d => {
         const data = d.data();
         let timestamp = null;
-
+        
         if (data.ts) {
           if (data.ts instanceof Timestamp) {
             timestamp = data.ts.toDate();
@@ -79,9 +82,9 @@ export default function Dashboard() {
             timestamp = new Date(data.ts);
           }
         }
-
-        return {
-          id: d.id,
+        
+        return { 
+          id: d.id, 
           ...data,
           timestamp: timestamp
         };
@@ -103,9 +106,9 @@ export default function Dashboard() {
   const latestReports = useMemo(() => {
     const userMap = new Map();
     logs.forEach(log => {
-      if (!userMap.has(log.userId) ||
-        (userMap.get(log.userId).timestamp && log.timestamp &&
-          log.timestamp > userMap.get(log.userId).timestamp)) {
+      if (!userMap.has(log.userId) || 
+          (userMap.get(log.userId).timestamp && log.timestamp && 
+           log.timestamp > userMap.get(log.userId).timestamp)) {
         userMap.set(log.userId, log);
       }
     });
@@ -128,15 +131,15 @@ export default function Dashboard() {
   const filteredLogs = useMemo(() => {
     return latestReports.filter(log => {
       // Search filter
-      const matchesSearch =
+      const matchesSearch = 
         searchTerm === '' ||
         log.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         log.userId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         log.text?.toLowerCase().includes(searchTerm.toLowerCase());
 
       // Type filter
-      const matchesFilter =
-        filterType === 'all' ||
+      const matchesFilter = 
+        filterType === 'all' || 
         log.type?.toLowerCase() === filterType.toLowerCase();
 
       // Date range filter
@@ -162,7 +165,8 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const checkIns = logs.filter(log => log.type?.toLowerCase() === 'check-in').length;
     const checkOuts = logs.filter(log => log.type?.toLowerCase() === 'check-out').length;
-
+    const leaves = logs.filter(log => log.type?.toLowerCase() === 'leave').length;
+    
     // Calculate average check-in time
     const checkInTimes = logs
       .filter(log => log.type?.toLowerCase() === 'check-in' && log.time)
@@ -171,17 +175,17 @@ export default function Dashboard() {
         const [time, period] = timeStr?.split(' ') || ['09:00', 'AM'];
         // eslint-disable-next-line prefer-const
         let [hours, minutes] = time.split(':').map(Number);
-
+        
         if (period === 'PM' && hours !== 12) hours += 12;
         if (period === 'AM' && hours === 12) hours = 0;
-
+        
         return hours * 60 + minutes;
       });
 
-    const avgCheckInMinutes = checkInTimes.length > 0
+    const avgCheckInMinutes = checkInTimes.length > 0 
       ? Math.round(checkInTimes.reduce((a, b) => a + b, 0) / checkInTimes.length)
       : 540;
-
+    
     const avgHours = Math.floor(avgCheckInMinutes / 60);
     const avgMinutes = avgCheckInMinutes % 60;
     const formattedHours = avgHours > 12 ? avgHours - 12 : avgHours;
@@ -192,6 +196,7 @@ export default function Dashboard() {
       activeMembers: latestReports.length,
       checkIns,
       checkOuts,
+      leaves,
       avgCheckInTime: avgTime,
       systemUptime: '99.9%'
     };
@@ -200,19 +205,20 @@ export default function Dashboard() {
   // Group logs by user and date for detailed report
   const getDetailedReportData = (logsData: any[]) => {
     const userMap = new Map();
-
+    
     logsData.forEach(log => {
       if (!userMap.has(log.userId)) {
         userMap.set(log.userId, {
           userName: log.userName,
           userId: log.userId,
+          userProfilePicture: log.userProfilePicture,
           days: new Map()
         });
       }
-
+      
       const user = userMap.get(log.userId);
       let dateKey: string;
-
+      
       if (log.date) {
         dateKey = log.date;
       } else if (log.timestamp) {
@@ -220,36 +226,46 @@ export default function Dashboard() {
       } else {
         dateKey = format(new Date(), 'yyyy-MM-dd');
       }
-
+      
       if (!user.days.has(dateKey)) {
         user.days.set(dateKey, {
           date: dateKey,
           checkIn: null,
-          checkOut: null
+          checkOut: null,
+          leave: null
         });
       }
-
+      
       const day = user.days.get(dateKey);
       if (log.type?.toLowerCase() === 'check-in') {
         day.checkIn = {
           time: log.time,
           message: log.text || 'No message',
-          image: log.imageUrl || 'No image'
+          image: log.imageUrl || 'No image',
+          profilePicture: log.userProfilePicture
         };
       } else if (log.type?.toLowerCase() === 'check-out') {
         day.checkOut = {
           time: log.time,
           message: log.text || 'No message',
-          image: log.imageUrl || 'No image'
+          image: log.imageUrl || 'No image',
+          profilePicture: log.userProfilePicture
+        };
+      } else if (log.type?.toLowerCase() === 'leave') {
+        day.leave = {
+          time: log.time,
+          message: log.text || 'No message',
+          image: log.imageUrl || 'No image',
+          profilePicture: log.userProfilePicture
         };
       }
     });
-
+    
     return Array.from(userMap.values()).map(user => ({
       employeeName: user.userName,
       employeeId: user.userId,
+      profilePicture: user.userProfilePicture,
       days: Array.from(user.days.values()).sort((a: any, b: any) => {
-        // Safe date comparison
         const dateA = safeParseDate(a.date);
         const dateB = safeParseDate(b.date);
         return dateB.getTime() - dateA.getTime();
@@ -260,7 +276,7 @@ export default function Dashboard() {
   // Export to Excel with detailed formatting
   const exportToExcelDetailed = (data: any[], fileName: string, isSingleUser = false) => {
     const wb = XLSX.utils.book_new();
-
+    
     if (isSingleUser && data.length > 0) {
       // Single user detailed report
       const user = data[0];
@@ -271,23 +287,24 @@ export default function Dashboard() {
         [`Employee ID: ${user.employeeId}`],
         [`Report Date: ${format(new Date(), 'MMMM dd, yyyy')}`],
         [''],
-        ['Date', 'Check-In Time', 'Check-In Message', 'Check-In Image', 'Check-Out Time', 'Check-Out Message', 'Check-Out Image']
+        ['Date', 'Check-In Time', 'Check-In Message', 'Check-In Image', 'Check-Out Time', 'Check-Out Message', 'Check-Out Image', 'Leave Status']
       ];
-
+      
       user.days.forEach((day: any) => {
         wsData.push([
           day.date,
-          day.checkIn?.time || 'Not Available',
+          day.checkIn?.time || '-',
           day.checkIn?.message || '-',
           day.checkIn?.image !== 'No image' ? 'Yes' : 'No',
-          day.checkOut?.time || 'Not Available',
+          day.checkOut?.time || '-',
           day.checkOut?.message || '-',
-          day.checkOut?.image !== 'No image' ? 'Yes' : 'No'
+          day.checkOut?.image !== 'No image' ? 'Yes' : 'No',
+          day.leave ? 'On Leave' : 'Present'
         ]);
       });
-
+      
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-
+      
       // Set column widths
       const colWidths = [
         { wch: 15 },
@@ -297,9 +314,10 @@ export default function Dashboard() {
         { wch: 15 },
         { wch: 40 },
         { wch: 15 },
+        { wch: 15 },
       ];
       ws['!cols'] = colWidths;
-
+      
       XLSX.utils.book_append_sheet(wb, ws, 'Attendance Report');
     } else {
       // Multiple users summary report
@@ -309,176 +327,142 @@ export default function Dashboard() {
         [`Report Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`],
         [`Total Employees: ${data.length}`],
         [''],
-        ['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Last Activity', 'Status']
+        ['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Leaves', 'Last Activity', 'Status']
       ];
-
+      
       data.forEach(user => {
         const totalDays = user.days.length;
         const checkIns = user.days.filter((day: any) => day.checkIn).length;
         const checkOuts = user.days.filter((day: any) => day.checkOut).length;
+        const leaves = user.days.filter((day: any) => day.leave).length;
         const lastDay = user.days[0];
-        const lastActivity = lastDay?.checkIn?.time || lastDay?.checkOut?.time || 'No activity';
-        const status = checkIns > 0 ? 'Active' : 'Inactive';
-
+        const lastActivity = lastDay?.checkIn?.time || lastDay?.checkOut?.time || lastDay?.leave?.time || 'No activity';
+        const status = leaves > 0 ? 'On Leave' : (checkIns > 0 ? 'Active' : 'Inactive');
+        
         summaryWsData.push([
           user.employeeName,
           user.employeeId,
           totalDays,
           checkIns,
           checkOuts,
+          leaves,
           lastActivity,
           status
         ]);
       });
-
+      
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryWsData);
       summaryWs['!cols'] = [
-        { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 12 },
-        { wch: 12 }, { wch: 15 }, { wch: 10 }
+        { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, 
+        { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 10 }
       ];
-
+      
       XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
-
-      // Create detailed sheet for each user
-      data.forEach((user, index) => {
-        if (index < 10) {
-          const userWsData = [
-            [`${user.employeeName} - Detailed Attendance`],
-            [''],
-            ['Date', 'Check-In Time', 'Check-In Message', 'Check-In Image', 'Check-Out Time', 'Check-Out Message', 'Check-Out Image']
-          ];
-
-          user.days.forEach((day: any) => {
-            userWsData.push([
-              day.date,
-              day.checkIn?.time || '-',
-              day.checkIn?.message || '-',
-              day.checkIn?.image !== 'No image' ? 'Yes' : 'No',
-              day.checkOut?.time || '-',
-              day.checkOut?.message || '-',
-              day.checkOut?.image !== 'No image' ? 'Yes' : 'No'
-            ]);
-          });
-
-          const userWs = XLSX.utils.aoa_to_sheet(userWsData);
-          userWs['!cols'] = [
-            { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 15 },
-            { wch: 15 }, { wch: 30 }, { wch: 15 }
-          ];
-
-          const sheetName = user.employeeName.substring(0, 31);
-          XLSX.utils.book_append_sheet(wb, userWs, sheetName);
-        }
-      });
     }
-
+    
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const blob = new Blob([excelBuffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    const blob = new Blob([excelBuffer], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
     });
-
+    
     saveAs(blob, `${fileName}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
   };
 
   // Export to PDF
   const exportToPDF = (data: any[], fileName: string, isSingleUser = false) => {
     const doc = new jsPDF();
-
+    
+    // Add header
+    doc.setFontSize(20);
+    doc.setTextColor(40, 40, 40);
+    doc.text('ATTENDANCE REPORT', 105, 15, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`, 105, 22, { align: 'center' });
+    
+    let yPos = 30;
+    
     if (isSingleUser && data.length > 0) {
       const user = data[0];
       
-      // Professional Header Design for Single User
-      doc.setFillColor(245, 158, 11); // Amber-500
-      doc.rect(0, 0, 210, 40, 'F');
-      
-      doc.setFontSize(22);
-      doc.setTextColor(255, 255, 255);
-      doc.text('PERSONNEL ATTENDANCE LOG', 105, 18, { align: 'center' });
-      
-      doc.setFontSize(10);
-      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
-
-      // Employee Information Block
-      doc.setFillColor(243, 244, 246);
-      doc.rect(14, 45, 182, 25, 'F');
-      
-      doc.setTextColor(40, 40, 40);
+      // User info
       doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Employee: ${user.employeeName}`, 20, 55);
-      doc.text(`Employee ID: ${user.employeeId}`, 20, 63);
+      doc.setTextColor(40, 40, 40);
+      doc.text(`Employee: ${user.employeeName}`, 14, yPos);
+      doc.text(`ID: ${user.employeeId}`, 14, yPos + 7);
       
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Total Records: ${user.days.length}`, 140, 59);
-
-      // Table for Detailed History
-      const headers = [['Date', 'Arrival (IN)', 'Message', 'Departure (OUT)', 'Message']];
+      yPos += 20;
+      
+      // Table headers
+      const headers = [['Date', 'Check-In Time', 'Check-In Message', 'Check-Out Time', 'Check-Out Message', 'Leave']];
+      
+      // Table data
       const tableData = user.days.map((day: any) => [
         day.date,
         day.checkIn?.time || '-',
-        (day.checkIn?.message || '-'),
+        (day.checkIn?.message || '-').substring(0, 40),
         day.checkOut?.time || '-',
-        (day.checkOut?.message || '-')
+        (day.checkOut?.message || '-').substring(0, 40),
+        day.leave ? 'Yes' : 'No'
       ]);
-
+      
       autoTable(doc, {
         head: headers,
         body: tableData,
-        startY: 80,
-        theme: 'striped',
-        headStyles: { fillColor: [31, 41, 55], textColor: [255, 255, 255], fontSize: 10, halign: 'center' },
-        styles: { fontSize: 9, cellPadding: 4, halign: 'center' },
-        columnStyles: {
-          2: { halign: 'left', cellWidth: 40 },
-          4: { halign: 'left', cellWidth: 40 }
-        }
+        startY: yPos,
+        theme: 'grid',
+        headStyles: { fillColor: [59, 130, 246] },
+        margin: { top: 10 }
       });
     } else {
       // Summary for all users
-      doc.setFontSize(20);
-      doc.setTextColor(40, 40, 40);
-      doc.text('ATTENDANCE SUMMARY REPORT', 105, 15, { align: 'center' });
-
-      doc.setFontSize(10);
-      doc.setTextColor(100, 100, 100);
-      doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`, 105, 22, { align: 'center' });
-
-      const headers = [['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Status']];
+      doc.setFontSize(12);
+      doc.text(`Total Employees: ${data.length}`, 14, yPos);
+      yPos += 10;
+      
+      const headers = [['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Leaves', 'Status']];
+      
       const tableData = data.map(user => {
         const totalDays = user.days.length;
         const checkIns = user.days.filter((day: any) => day.checkIn).length;
         const checkOuts = user.days.filter((day: any) => day.checkOut).length;
-        const status = checkIns > 0 ? 'Active' : 'Inactive';
-
-        return [user.employeeName, user.employeeId, totalDays.toString(), checkIns.toString(), checkOuts.toString(), status];
+        const leaves = user.days.filter((day: any) => day.leave).length;
+        const status = leaves > 0 ? 'On Leave' : (checkIns > 0 ? 'Active' : 'Inactive');
+        
+        return [
+          user.employeeName,
+          user.employeeId,
+          totalDays.toString(),
+          checkIns.toString(),
+          checkOuts.toString(),
+          leaves.toString(),
+          status
+        ];
       });
-
+      
       autoTable(doc, {
         head: headers,
         body: tableData,
-        startY: 35,
+        startY: yPos,
         theme: 'grid',
         headStyles: { fillColor: [59, 130, 246] },
         margin: { top: 10 },
         pageBreak: 'auto'
       });
     }
-
+    
     doc.save(`${fileName}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
   // Handle export based on selected format
   const handleExport = (data: any[], fileName: string, isSingleUser = false) => {
     const reportData = getDetailedReportData(data);
-
-    if (isSingleUser) {
-      exportToPDF(reportData, fileName, true);
+    
+    if (exportFormat === 'excel') {
+      exportToExcelDetailed(reportData, fileName, isSingleUser);
     } else {
-      if (exportFormat === 'excel') {
-        exportToExcelDetailed(reportData, fileName, isSingleUser);
-      } else {
-        exportToPDF(reportData, fileName, isSingleUser);
-      }
+      exportToPDF(reportData, fileName, isSingleUser);
     }
   };
 
@@ -526,9 +510,10 @@ export default function Dashboard() {
     const userLogs = logs.filter(log => log.userId === userId);
     const checkIns = userLogs.filter(log => log.type?.toLowerCase() === 'check-in').length;
     const checkOuts = userLogs.filter(log => log.type?.toLowerCase() === 'check-out').length;
+    const leaves = userLogs.filter(log => log.type?.toLowerCase() === 'leave').length;
     const daysPresent = new Set(userLogs.map(log => log.date)).size;
-
-    return { checkIns, checkOuts, daysPresent };
+    
+    return { checkIns, checkOuts, leaves, daysPresent };
   };
 
   // Get detailed user report data for modal
@@ -536,6 +521,26 @@ export default function Dashboard() {
     if (!selectedUser || userHistory.length === 0) return null;
     const reportData = getDetailedReportData(userHistory);
     return reportData[0] || null;
+  };
+
+  // Get status color based on type
+  const getStatusColor = (type: string) => {
+    switch(type?.toLowerCase()) {
+      case 'check-in': return 'bg-green-500/10 text-green-400 border-green-500/20';
+      case 'check-out': return 'bg-red-500/10 text-red-400 border-red-500/20';
+      case 'leave': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+      default: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+    }
+  };
+
+  // Get status icon based on type
+  const getStatusIcon = (type: string) => {
+    switch(type?.toLowerCase()) {
+      case 'check-in': return <CheckCircle className="h-3 w-3" />;
+      case 'check-out': return <LogOut className="h-3 w-3" />;
+      case 'leave': return <CatIcon className="h-3 w-3" />;
+      default: return <Activity className="h-3 w-3" />;
+    }
   };
 
   return (
@@ -554,15 +559,15 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400">Enterprise Monitoring System</p>
             </div>
           </div>
-
+          
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-sm bg-gray-900/50 px-4 py-2 rounded-lg border border-gray-800">
               <Clock className="h-4 w-4 text-amber-400" />
               <span className="text-gray-300">Asia/Karachi (PKT)</span>
             </div>
-
+            
             <div className="flex items-center gap-2">
-              <select
+              <select 
                 value={exportFormat}
                 onChange={(e) => setExportFormat(e.target.value as 'excel' | 'pdf')}
                 className="bg-gray-900/50 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30"
@@ -570,8 +575,8 @@ export default function Dashboard() {
                 <option value="excel">Excel</option>
                 <option value="pdf">PDF</option>
               </select>
-
-              <button
+              
+              <button 
                 onClick={handleExportFullHistory}
                 className="bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-amber-500/20 transition-all duration-300 flex items-center gap-2"
               >
@@ -615,8 +620,8 @@ export default function Dashboard() {
             </div>
             <div className="mt-4">
               <div className="w-full bg-gray-800 rounded-full h-2">
-                <div
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
                   style={{ width: `${(stats.activeMembers / Math.max(stats.totalLogs, 1)) * 100}%` }}
                 ></div>
               </div>
@@ -666,16 +671,16 @@ export default function Dashboard() {
               </h3>
               <p className="text-sm text-gray-400">Generate detailed attendance reports in Excel or PDF format</p>
             </div>
-
+            
             <div className="flex flex-col sm:flex-row gap-3">
-              <button
+              <button 
                 onClick={handleExportCurrentView}
                 className="flex items-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-colors"
               >
                 <FileText className="h-4 w-4" />
                 Export Current View
               </button>
-              <button
+              <button 
                 onClick={handleExportFullHistory}
                 className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 rounded-xl text-sm font-medium transition-all"
               >
@@ -700,7 +705,7 @@ export default function Dashboard() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-
+              
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className="flex items-center gap-2 px-4 py-3 bg-gray-900/50 border border-gray-800 rounded-xl text-sm hover:bg-gray-800 transition-colors"
@@ -710,9 +715,9 @@ export default function Dashboard() {
                 <ChevronDown className={`h-4 w-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
               </button>
             </div>
-
+            
             <div className="flex items-center gap-4 w-full md:w-auto mt-4 md:mt-0">
-              <button
+              <button 
                 onClick={resetFilters}
                 className="px-4 py-3 bg-gray-900/50 border border-gray-800 rounded-xl text-sm hover:bg-gray-800 transition-colors"
               >
@@ -728,25 +733,32 @@ export default function Dashboard() {
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">Status Filter</label>
                   <div className="flex gap-2 flex-wrap">
-                    <button
+                    <button 
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filterType === 'all' ? 'bg-amber-500 text-white' : 'bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
                       onClick={() => setFilterType('all')}
                     >
                       All Status
                     </button>
-                    <button
+                    <button 
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${filterType === 'check-in' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
                       onClick={() => setFilterType('check-in')}
                     >
                       <CheckCircle className="h-4 w-4" />
                       Check-In Only
                     </button>
-                    <button
+                    <button 
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${filterType === 'check-out' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
                       onClick={() => setFilterType('check-out')}
                     >
-                      <XCircle className="h-4 w-4" />
+                      <LogOut className="h-4 w-4" />
                       Check-Out Only
+                    </button>
+                    <button 
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${filterType === 'leave' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
+                      onClick={() => setFilterType('leave')}
+                    >
+                      <CatIcon className="h-4 w-4" />
+                      Leave Only
                     </button>
                   </div>
                 </div>
@@ -759,7 +771,7 @@ export default function Dashboard() {
                         type="date"
                         className="w-full bg-gray-900/50 border border-gray-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/50"
                         value={dateRange.start}
-                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
                         max={dateRange.end || formatDateForInput(new Date())}
                       />
                     </div>
@@ -768,7 +780,7 @@ export default function Dashboard() {
                         type="date"
                         className="w-full bg-gray-900/50 border border-gray-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/50"
                         value={dateRange.end}
-                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
                         min={dateRange.start}
                         max={formatDateForInput(new Date())}
                       />
@@ -779,7 +791,7 @@ export default function Dashboard() {
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-2">Quick Actions</label>
                   <div className="flex gap-2">
-                    <button
+                    <button 
                       onClick={() => setDateRange({
                         start: formatDateForInput(new Date()),
                         end: formatDateForInput(new Date())
@@ -788,7 +800,7 @@ export default function Dashboard() {
                     >
                       Today
                     </button>
-                    <button
+                    <button 
                       onClick={() => {
                         const yesterday = new Date();
                         yesterday.setDate(yesterday.getDate() - 1);
@@ -812,7 +824,7 @@ export default function Dashboard() {
             <div className="flex flex-wrap gap-2 mt-4">
               {filterType !== 'all' && (
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-800 rounded-full text-sm">
-                  Status: {filterType === 'check-in' ? 'Check-In' : 'Check-Out'}
+                  Status: {filterType === 'check-in' ? 'Check-In' : filterType === 'check-out' ? 'Check-Out' : 'Leave'}
                   <button onClick={() => setFilterType('all')} className="ml-1 hover:text-red-400">
                     <X className="h-3 w-3" />
                   </button>
@@ -821,7 +833,7 @@ export default function Dashboard() {
               {dateRange.start && (
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-800 rounded-full text-sm">
                   From: {dateRange.start}
-                  <button onClick={() => setDateRange({ ...dateRange, start: '' })} className="ml-1 hover:text-red-400">
+                  <button onClick={() => setDateRange({...dateRange, start: ''})} className="ml-1 hover:text-red-400">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
@@ -829,7 +841,7 @@ export default function Dashboard() {
               {dateRange.end && (
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-800 rounded-full text-sm">
                   To: {dateRange.end}
-                  <button onClick={() => setDateRange({ ...dateRange, end: '' })} className="ml-1 hover:text-red-400">
+                  <button onClick={() => setDateRange({...dateRange, end: ''})} className="ml-1 hover:text-red-400">
                     <X className="h-3 w-3" />
                   </button>
                 </span>
@@ -859,7 +871,7 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
+          
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -895,19 +907,31 @@ export default function Dashboard() {
                 ) : filteredLogs.map((row: any) => {
                   const userStats = getUserStats(row.userId);
                   return (
-                    <tr
-                      key={row.id}
+                    <tr 
+                      key={row.id} 
                       onClick={() => setSelectedUser(row.userId)}
                       className="hover:bg-gray-900/30 transition-all duration-200 cursor-pointer group"
                     >
                       <td className="p-6">
                         <div className="flex items-center gap-4">
                           <div className="relative">
-                            <div className="h-12 w-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl flex items-center justify-center font-bold text-lg group-hover:from-amber-900/30 group-hover:to-amber-900/10 transition-all duration-300">
-                              {row.userName?.charAt(0) || 'U'}
-                            </div>
+                            {/* Profile Picture or Initial */}
+                            {row.userProfilePicture ? (
+                              <img 
+                                src={row.userProfilePicture} 
+                                alt={row.userName}
+                                className="h-12 w-12 rounded-xl object-cover border-2 border-gray-700 group-hover:border-amber-500/50 transition-all duration-300"
+                              />
+                            ) : (
+                              <div className="h-12 w-12 bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl flex items-center justify-center font-bold text-lg group-hover:from-amber-900/30 group-hover:to-amber-900/10 transition-all duration-300">
+                                {row.userName?.charAt(0) || 'U'}
+                              </div>
+                            )}
                             {row.type?.toLowerCase() === 'check-in' && (
                               <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-green-500 rounded-full border-2 border-gray-900 animate-pulse"></div>
+                            )}
+                            {row.type?.toLowerCase() === 'leave' && (
+                              <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-blue-500 rounded-full border-2 border-gray-900 animate-pulse"></div>
                             )}
                           </div>
                           <div>
@@ -917,13 +941,18 @@ export default function Dashboard() {
                               <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-full">
                                 {userStats.daysPresent} days
                               </span>
+                              {userStats.leaves > 0 && (
+                                <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full">
+                                  {userStats.leaves} leaves
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
                       </td>
                       <td className="p-6">
-                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold ${row.type?.toLowerCase() === 'check-in' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                          {row.type?.toLowerCase() === 'check-in' ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border ${getStatusColor(row.type)}`}>
+                          {getStatusIcon(row.type)}
                           {row.type || 'Unknown'}
                         </div>
                       </td>
@@ -947,28 +976,28 @@ export default function Dashboard() {
                       </td>
                       <td className="p-6">
                         <div className="flex items-center gap-2">
-                          <button
+                          <button 
                             onClick={(e) => handleDelete(row.id, e)}
                             className="p-2 hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-400 transition-colors"
                             title="Delete record"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
-                          <button
+                          <button 
                             onClick={() => setSelectedUser(row.userId)}
                             className="p-2 hover:bg-amber-500/10 rounded-lg text-gray-400 hover:text-amber-400 transition-colors"
                             title="View history"
                           >
                             <ChevronRight className="h-4 w-4" />
                           </button>
-                          <button
+                          <button 
                             onClick={(e) => {
                               e.stopPropagation();
                               const userLogs = logs.filter(log => log.userId === row.userId);
                               handleExport(userLogs, `Attendance_${row.userName}_Report`, true);
                             }}
                             className="p-2 hover:bg-green-500/10 rounded-lg text-gray-400 hover:text-green-400 transition-colors"
-                            title="Export individual PDF report"
+                            title="Export individual report"
                           >
                             <Download className="h-4 w-4" />
                           </button>
@@ -990,7 +1019,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3">
                 <div className="text-sm text-gray-400">
                   Export Format:
-                  <select
+                  <select 
                     value={exportFormat}
                     onChange={(e) => setExportFormat(e.target.value as 'excel' | 'pdf')}
                     className="ml-2 bg-gray-900/50 border border-gray-800 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
@@ -999,7 +1028,7 @@ export default function Dashboard() {
                     <option value="pdf">PDF</option>
                   </select>
                 </div>
-                <button
+                <button 
                   onClick={handleExportCurrentView}
                   className="flex items-center gap-2 px-4 py-2 bg-gray-900/50 border border-gray-800 rounded-lg text-sm hover:bg-gray-800 transition-colors"
                 >
@@ -1020,9 +1049,17 @@ export default function Dashboard() {
             <div className="p-6 border-b border-gray-800 bg-gradient-to-r from-gray-900 to-black">
               <div className="flex justify-between items-start">
                 <div className="flex items-start gap-4">
-                  <div className="h-16 w-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center text-2xl font-bold">
-                    {selectedUserDetails.userName?.charAt(0) || 'U'}
-                  </div>
+                  {selectedUserDetails.userProfilePicture ? (
+                    <img 
+                      src={selectedUserDetails.userProfilePicture} 
+                      alt={selectedUserDetails.userName}
+                      className="h-16 w-16 rounded-xl object-cover border-2 border-amber-500/50"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center text-2xl font-bold">
+                      {selectedUserDetails.userName?.charAt(0) || 'U'}
+                    </div>
+                  )}
                   <div>
                     <h3 className="text-2xl font-bold text-white">{selectedUserDetails.userName}</h3>
                     <div className="flex flex-wrap gap-2 mt-2">
@@ -1038,10 +1075,16 @@ export default function Dashboard() {
                         <CheckCircle className="h-3 w-3" />
                         {userHistory.filter((h: any) => h.type?.toLowerCase() === 'check-in').length} Check-ins
                       </span>
+                      {userHistory.filter((h: any) => h.type?.toLowerCase() === 'leave').length > 0 && (
+                        <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-sm">
+                          <CatIcon className="h-3 w-3" />
+                          {userHistory.filter((h: any) => h.type?.toLowerCase() === 'leave').length} Leaves
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
-                <button
+                <button 
                   onClick={() => setSelectedUser(null)}
                   className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
                 >
@@ -1049,7 +1092,7 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-
+            
             {/* Modal Content */}
             <div className="overflow-y-auto max-h-[60vh]">
               <div className="p-6">
@@ -1059,7 +1102,7 @@ export default function Dashboard() {
                     <CalendarIcon className="h-5 w-5 text-amber-400" />
                     Daily Attendance Summary
                   </h4>
-
+                  
                   {(() => {
                     const userReport = getUserDetailedReport();
                     if (!userReport) {
@@ -1070,7 +1113,7 @@ export default function Dashboard() {
                         </div>
                       );
                     }
-
+                    
                     return (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -1081,7 +1124,7 @@ export default function Dashboard() {
                               <th className="pb-3 text-left">Check-In Message</th>
                               <th className="pb-3 text-left">Check-Out Time</th>
                               <th className="pb-3 text-left">Check-Out Message</th>
-                              <th className="pb-3 text-left">Attachments</th>
+                              <th className="pb-3 text-left">Status</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1094,7 +1137,7 @@ export default function Dashboard() {
                                       <div className="font-medium">{day.checkIn.time}</div>
                                     </div>
                                   ) : (
-                                    <span className="text-gray-500">Not Available</span>
+                                    <span className="text-gray-500">-</span>
                                   )}
                                 </td>
                                 <td className="py-4 max-w-xs">
@@ -1110,7 +1153,7 @@ export default function Dashboard() {
                                       <div className="font-medium">{day.checkOut.time}</div>
                                     </div>
                                   ) : (
-                                    <span className="text-gray-500">Not Available</span>
+                                    <span className="text-gray-500">-</span>
                                   )}
                                 </td>
                                 <td className="py-4 max-w-xs">
@@ -1121,31 +1164,17 @@ export default function Dashboard() {
                                   )}
                                 </td>
                                 <td className="py-4">
-                                  <div className="flex gap-2">
-                                    {day.checkIn && day.checkIn.image !== 'No image' && (
-                                      <a
-                                        href={day.checkIn.image}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-xs px-2 py-1 bg-amber-500/10 text-amber-400 rounded hover:bg-amber-500/20 transition-colors"
-                                      >
-                                        Check-In Image
-                                      </a>
-                                    )}
-                                    {day.checkOut && day.checkOut.image !== 'No image' && (
-                                      <a
-                                        href={day.checkOut.image}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-xs px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20 transition-colors"
-                                      >
-                                        Check-Out Image
-                                      </a>
-                                    )}
-                                    {((!day.checkIn || day.checkIn.image === 'No image') && (!day.checkOut || day.checkOut.image === 'No image')) && (
-                                      <span className="text-gray-500 text-xs">No attachments</span>
-                                    )}
-                                  </div>
+                                  {day.leave ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded text-xs">
+                                      <CatIcon className="h-3 w-3" />
+                                      On Leave
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/10 text-green-400 rounded text-xs">
+                                      <Home className="h-3 w-3" />
+                                      Present
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -1159,41 +1188,64 @@ export default function Dashboard() {
                 {/* Export Options */}
                 <div className="bg-gray-900/30 rounded-xl p-6">
                   <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Download className="h-5 w-5 text-amber-400" />
-                    Download Detailed PDF Report
+                    <Download className="h-5 w-5 text-green-400" />
+                    Export Options for {selectedUserDetails.userName}
                   </h4>
-
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="p-6 bg-gray-800/30 rounded-lg border border-gray-800 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-amber-500/10 rounded-xl">
-                          <FileText className="h-8 w-8 text-amber-400" />
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-800">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-green-500/10 rounded-lg">
+                          <FileSpreadsheet className="h-5 w-5 text-green-400" />
                         </div>
                         <div>
-                          <p className="font-bold text-lg text-white">Professional PDF Document</p>
-                          <p className="text-sm text-gray-400">Detailed logs, arrival/departure times, and employee metadata</p>
+                          <p className="font-medium text-white">Excel Report</p>
+                          <p className="text-sm text-gray-400">Detailed daily attendance with messages</p>
                         </div>
                       </div>
-                      <button
-                        onClick={handleExportUserHistory}
-                        className="px-8 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:shadow-lg hover:shadow-amber-500/20 rounded-xl text-sm font-bold transition-all flex items-center gap-2"
+                      <button 
+                        onClick={() => {
+                          setExportFormat('excel');
+                          handleExportUserHistory();
+                        }}
+                        className="w-full mt-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-lg text-sm font-medium transition-colors"
                       >
-                        <Download className="h-5 w-5" />
-                        Download Report
+                        Export as Excel
+                      </button>
+                    </div>
+                    
+                    <div className="p-4 bg-gray-800/30 rounded-lg border border-gray-800">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="p-2 bg-red-500/10 rounded-lg">
+                          <FileText className="h-5 w-5 text-red-400" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">PDF Report</p>
+                          <p className="text-sm text-gray-400">Professional formatted document</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setExportFormat('pdf');
+                          handleExportUserHistory();
+                        }}
+                        className="w-full mt-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Export as PDF
                       </button>
                     </div>
                   </div>
-
+                  
                   <div className="mt-4 text-sm text-gray-400">
                     <p className="flex items-center gap-2">
                       <ExternalLink className="h-4 w-4" />
-                      Note: Single employee reports are generated exclusively in PDF format for professional consistency.
+                      Reports include: Daily check-in/out times, messages, leave status, and attendance summary
                     </p>
                   </div>
                 </div>
               </div>
             </div>
-
+            
             {/* Modal Footer */}
             <div className="p-6 border-t border-gray-800 bg-black/20">
               <div className="flex justify-between items-center">
@@ -1201,18 +1253,18 @@ export default function Dashboard() {
                   Showing {userHistory.length} records • Last updated {new Date().toLocaleTimeString()}
                 </div>
                 <div className="flex gap-3">
-                  <button
+                  <button 
                     onClick={() => setSelectedUser(null)}
                     className="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg font-medium transition-colors"
                   >
                     Close
                   </button>
-                  <button
+                  <button 
                     onClick={handleExportUserHistory}
                     className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:shadow-lg hover:shadow-amber-500/20 rounded-lg font-medium transition-all flex items-center gap-2"
                   >
                     <Download className="h-4 w-4" />
-                    Export PDF
+                    Export Detailed Report
                   </button>
                 </div>
               </div>
