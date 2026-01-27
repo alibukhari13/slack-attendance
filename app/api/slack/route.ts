@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import emoji from 'node-emoji';
+import { emojify, get } from 'node-emoji';
 
 const SLACK_BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
 const CHECK_IN_CHANNEL = "C0ABB105W3S";
@@ -37,14 +37,13 @@ function convertEmoji(text: string): string {
   if (!text) return '';
   
   // First convert Slack emoji format (:emoji_name:) to actual emoji
-  let convertedText = emoji.emojify(text);
+  let convertedText = emojify(text);
   
   // Handle custom Slack emojis
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  convertedText = convertedText.replace(/:[a-zA-Z0-9_+-]+:/g, (match: string | any[]) => {
+  convertedText = convertedText.replace(/:[a-zA-Z0-9_+-]+:/g, (match) => {
     const emojiName = match.slice(1, -1);
     // Try to get the emoji from node-emoji first
-    const standardEmoji = emoji.get(emojiName);
+    const standardEmoji = get(emojiName);
     if (standardEmoji) return standardEmoji;
     
     // Return the original if not found
