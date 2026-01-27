@@ -31,13 +31,51 @@ import {
   DownloadCloud,
   Home,
   LogOut,
-  CatIcon
+  Coffee,
+  CalendarDays,
+  Clock4,
+  FileBarChart,
+  User,
+  Hash,
+  Target,
+  Award,
+  Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { format, isValid, parseISO } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+// Define TypeScript interfaces
+interface CheckInOutRecord {
+  time: string;
+  message: string;
+  image: string | null;
+  timestamp: Date | null;
+}
+
+interface LeaveRecord {
+  time: string;
+  message: string;
+  image: string | null;
+  timestamp: Date | null;
+}
+
+interface DayRecord {
+  date: string;
+  checkIns: CheckInOutRecord[];
+  checkOuts: CheckInOutRecord[];
+  leaves: LeaveRecord[];
+}
+
+interface UserReport {
+  employeeName: string;
+  employeeId: string;
+  profilePicture: string | null;
+  displayName: string | null;
+  days: DayRecord[];
+}
 
 // Helper function to safely parse dates
 const safeParseDate = (dateString: string | undefined): Date => {
@@ -50,6 +88,39 @@ const safeParseDate = (dateString: string | undefined): Date => {
   if (isValid(parsed)) return parsed;
   
   return new Date(0);
+};
+
+// Helper function to calculate hours between check-in and check-out
+const calculateWorkHours = (checkInTime: string, checkOutTime: string): string => {
+  if (!checkInTime || !checkOutTime) return '0h 0m';
+  
+  try {
+    const parseTime = (timeStr: string) => {
+      const [time, period] = timeStr.split(' ');
+      const [hours, minutes] = time.split(':').map(Number);
+      
+      let totalMinutes = hours * 60 + minutes;
+      if (period === 'PM' && hours !== 12) totalMinutes += 12 * 60;
+      if (period === 'AM' && hours === 12) totalMinutes -= 12 * 60;
+      
+      return totalMinutes;
+    };
+    
+    const startMinutes = parseTime(checkInTime);
+    const endMinutes = parseTime(checkOutTime);
+    
+    // Handle overnight work (if check-out is before check-in, assume next day)
+    const diffMinutes = endMinutes < startMinutes 
+      ? (24 * 60 - startMinutes) + endMinutes 
+      : endMinutes - startMinutes;
+    
+    const hours = Math.floor(diffMinutes / 60);
+    const minutes = diffMinutes % 60;
+    
+    return `${hours}h ${minutes}m`;
+  } catch (error) {
+    return '0h 0m';
+  }
 };
 
 export default function Dashboard() {
@@ -161,6 +232,97 @@ export default function Dashboard() {
     });
   }, [latestReports, searchTerm, filterType, dateRange]);
 
+  // Group logs by user and date for detailed report
+  const getDetailedReportData = (logsData: any[]): UserReport[] => {
+    const userMap = new Map<string, {
+      userName: string;
+      userId: string;
+      userProfilePicture: string | null;
+      userDisplayName: string | null;
+      days: Map<string, DayRecord>;
+    }>();
+    
+    logsData.forEach(log => {
+      if (!userMap.has(log.userId)) {
+        userMap.set(log.userId, {
+          userName: log.userName,
+          userId: log.userId,
+          userProfilePicture: log.userProfilePicture,
+          userDisplayName: log.userDisplayName,
+          days: new Map()
+        });
+      }
+      
+      const user = userMap.get(log.userId)!;
+      let dateKey: string;
+      
+      if (log.date) {
+        dateKey = log.date;
+      } else if (log.timestamp) {
+        dateKey = format(new Date(log.timestamp), 'yyyy-MM-dd');
+      } else {
+        dateKey = format(new Date(), 'yyyy-MM-dd');
+      }
+      
+      if (!user.days.has(dateKey)) {
+        user.days.set(dateKey, {
+          date: dateKey,
+          checkIns: [],
+          checkOuts: [],
+          leaves: []
+        });
+      }
+      
+      const day = user.days.get(dateKey)!;
+      if (log.type?.toLowerCase() === 'check-in') {
+        day.checkIns.push({
+          time: log.time,
+          message: log.text || 'No message',
+          image: log.imageUrl || null,
+          timestamp: log.timestamp
+        });
+        // Sort check-ins by time
+        day.checkIns.sort((a, b) => {
+          const timeA = a.time?.toLowerCase() || '';
+          const timeB = b.time?.toLowerCase() || '';
+          return timeA.localeCompare(timeB);
+        });
+      } else if (log.type?.toLowerCase() === 'check-out') {
+        day.checkOuts.push({
+          time: log.time,
+          message: log.text || 'No message',
+          image: log.imageUrl || null,
+          timestamp: log.timestamp
+        });
+        // Sort check-outs by time
+        day.checkOuts.sort((a, b) => {
+          const timeA = a.time?.toLowerCase() || '';
+          const timeB = b.time?.toLowerCase() || '';
+          return timeA.localeCompare(timeB);
+        });
+      } else if (log.type?.toLowerCase() === 'leave') {
+        day.leaves.push({
+          time: log.time,
+          message: log.text || 'No message',
+          image: log.imageUrl || null,
+          timestamp: log.timestamp
+        });
+      }
+    });
+    
+    return Array.from(userMap.values()).map(user => ({
+      employeeName: user.userName,
+      employeeId: user.userId,
+      profilePicture: user.userProfilePicture,
+      displayName: user.userDisplayName,
+      days: Array.from(user.days.values()).sort((a, b) => {
+        const dateA = safeParseDate(a.date);
+        const dateB = safeParseDate(b.date);
+        return dateB.getTime() - dateA.getTime();
+      })
+    }));
+  };
+
   // Calculate statistics
   const stats = useMemo(() => {
     const checkIns = logs.filter(log => log.type?.toLowerCase() === 'check-in').length;
@@ -198,108 +360,53 @@ export default function Dashboard() {
       checkOuts,
       leaves,
       avgCheckInTime: avgTime,
-      systemUptime: '99.9%'
+      systemUptime: '99.9%',
+      totalEmployees: new Set(logs.map(log => log.userId)).size
     };
   }, [logs, latestReports]);
-
-  // Group logs by user and date for detailed report
-  const getDetailedReportData = (logsData: any[]) => {
-    const userMap = new Map();
-    
-    logsData.forEach(log => {
-      if (!userMap.has(log.userId)) {
-        userMap.set(log.userId, {
-          userName: log.userName,
-          userId: log.userId,
-          userProfilePicture: log.userProfilePicture,
-          days: new Map()
-        });
-      }
-      
-      const user = userMap.get(log.userId);
-      let dateKey: string;
-      
-      if (log.date) {
-        dateKey = log.date;
-      } else if (log.timestamp) {
-        dateKey = format(new Date(log.timestamp), 'yyyy-MM-dd');
-      } else {
-        dateKey = format(new Date(), 'yyyy-MM-dd');
-      }
-      
-      if (!user.days.has(dateKey)) {
-        user.days.set(dateKey, {
-          date: dateKey,
-          checkIn: null,
-          checkOut: null,
-          leave: null
-        });
-      }
-      
-      const day = user.days.get(dateKey);
-      if (log.type?.toLowerCase() === 'check-in') {
-        day.checkIn = {
-          time: log.time,
-          message: log.text || 'No message',
-          image: log.imageUrl || 'No image',
-          profilePicture: log.userProfilePicture
-        };
-      } else if (log.type?.toLowerCase() === 'check-out') {
-        day.checkOut = {
-          time: log.time,
-          message: log.text || 'No message',
-          image: log.imageUrl || 'No image',
-          profilePicture: log.userProfilePicture
-        };
-      } else if (log.type?.toLowerCase() === 'leave') {
-        day.leave = {
-          time: log.time,
-          message: log.text || 'No message',
-          image: log.imageUrl || 'No image',
-          profilePicture: log.userProfilePicture
-        };
-      }
-    });
-    
-    return Array.from(userMap.values()).map(user => ({
-      employeeName: user.userName,
-      employeeId: user.userId,
-      profilePicture: user.userProfilePicture,
-      days: Array.from(user.days.values()).sort((a: any, b: any) => {
-        const dateA = safeParseDate(a.date);
-        const dateB = safeParseDate(b.date);
-        return dateB.getTime() - dateA.getTime();
-      })
-    }));
-  };
 
   // Export to Excel with detailed formatting
   const exportToExcelDetailed = (data: any[], fileName: string, isSingleUser = false) => {
     const wb = XLSX.utils.book_new();
+    const reportData = getDetailedReportData(data);
     
-    if (isSingleUser && data.length > 0) {
+    if (isSingleUser && reportData.length > 0) {
       // Single user detailed report
-      const user = data[0];
+      const user = reportData[0];
       const wsData = [
-        ['ATTENDANCE DETAILED REPORT'],
+        ['EMPLOYEE ATTENDANCE DETAILED REPORT'],
         [''],
         [`Employee Name: ${user.employeeName}`],
         [`Employee ID: ${user.employeeId}`],
         [`Report Date: ${format(new Date(), 'MMMM dd, yyyy')}`],
         [''],
-        ['Date', 'Check-In Time', 'Check-In Message', 'Check-In Image', 'Check-Out Time', 'Check-Out Message', 'Check-Out Image', 'Leave Status']
+        ['Date', 'Check-In Count', 'Check-In Times', 'Check-In Messages', 'Check-Out Count', 'Check-Out Times', 'Check-Out Messages', 'Leave Status', 'Work Hours']
       ];
       
-      user.days.forEach((day: any) => {
+      user.days.forEach((day: DayRecord) => {
+        const checkInTimes = day.checkIns.map(c => c.time).join(', ') || '-';
+        const checkInMessages = day.checkIns.map(c => c.message).join(' | ') || '-';
+        const checkOutTimes = day.checkOuts.map(c => c.time).join(', ') || '-';
+        const checkOutMessages = day.checkOuts.map(c => c.message).join(' | ') || '-';
+        const leaveStatus = day.leaves.length > 0 ? 'On Leave' : 'Present';
+        
+        let workHours = '0h 0m';
+        if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
+          const firstCheckIn = day.checkIns[0];
+          const lastCheckOut = day.checkOuts[day.checkOuts.length - 1];
+          workHours = calculateWorkHours(firstCheckIn.time, lastCheckOut.time);
+        }
+        
         wsData.push([
           day.date,
-          day.checkIn?.time || '-',
-          day.checkIn?.message || '-',
-          day.checkIn?.image !== 'No image' ? 'Yes' : 'No',
-          day.checkOut?.time || '-',
-          day.checkOut?.message || '-',
-          day.checkOut?.image !== 'No image' ? 'Yes' : 'No',
-          day.leave ? 'On Leave' : 'Present'
+          day.checkIns.length,
+          checkInTimes,
+          checkInMessages,
+          day.checkOuts.length,
+          checkOutTimes,
+          checkOutMessages,
+          leaveStatus,
+          workHours
         ]);
       });
       
@@ -307,14 +414,15 @@ export default function Dashboard() {
       
       // Set column widths
       const colWidths = [
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 40 },
-        { wch: 15 },
-        { wch: 15 },
-        { wch: 40 },
-        { wch: 15 },
-        { wch: 15 },
+        { wch: 15 },  // Date
+        { wch: 12 },  // Check-In Count
+        { wch: 25 },  // Check-In Times
+        { wch: 40 },  // Check-In Messages
+        { wch: 12 },  // Check-Out Count
+        { wch: 25 },  // Check-Out Times
+        { wch: 40 },  // Check-Out Messages
+        { wch: 12 },  // Leave Status
+        { wch: 15 },  // Work Hours
       ];
       ws['!cols'] = colWidths;
       
@@ -325,36 +433,67 @@ export default function Dashboard() {
         ['ATTENDANCE SUMMARY REPORT'],
         [''],
         [`Report Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`],
-        [`Total Employees: ${data.length}`],
+        [`Total Employees: ${reportData.length}`],
         [''],
-        ['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Leaves', 'Last Activity', 'Status']
+        ['Employee Name', 'Employee ID', 'Total Days', 'Total Check-Ins', 'Total Check-Outs', 'Leave Days', 'Avg. Work Hours/Day', 'Status', 'Last Activity']
       ];
       
-      data.forEach(user => {
+      reportData.forEach(user => {
         const totalDays = user.days.length;
-        const checkIns = user.days.filter((day: any) => day.checkIn).length;
-        const checkOuts = user.days.filter((day: any) => day.checkOut).length;
-        const leaves = user.days.filter((day: any) => day.leave).length;
+        const totalCheckIns = user.days.reduce((sum, day) => sum + day.checkIns.length, 0);
+        const totalCheckOuts = user.days.reduce((sum, day) => sum + day.checkOuts.length, 0);
+        const leaveDays = user.days.filter(day => day.leaves.length > 0).length;
+        
+        // Calculate average work hours
+        let totalWorkMinutes = 0;
+        let workedDays = 0;
+        
+        user.days.forEach((day: DayRecord) => {
+          if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
+            const firstCheckIn = day.checkIns[0];
+            const lastCheckOut = day.checkOuts[day.checkOuts.length - 1];
+            const workHours = calculateWorkHours(firstCheckIn.time, lastCheckOut.time);
+            const [hours, minutes] = workHours.split(' ')[0].split('h');
+            totalWorkMinutes += parseInt(hours) * 60 + parseInt(minutes);
+            workedDays++;
+          }
+        });
+        
+        const avgWorkHours = workedDays > 0 
+          ? `${Math.floor(totalWorkMinutes / workedDays / 60)}h ${Math.round(totalWorkMinutes / workedDays % 60)}m` 
+          : '0h 0m';
+        
         const lastDay = user.days[0];
-        const lastActivity = lastDay?.checkIn?.time || lastDay?.checkOut?.time || lastDay?.leave?.time || 'No activity';
-        const status = leaves > 0 ? 'On Leave' : (checkIns > 0 ? 'Active' : 'Inactive');
+        let lastActivity = 'No activity';
+        if (lastDay) {
+          if (lastDay.leaves.length > 0) {
+            lastActivity = `Leave (${lastDay.leaves[0]?.time || 'N/A'})`;
+          } else if (lastDay.checkIns.length > 0) {
+            lastActivity = `Check-In (${lastDay.checkIns[0]?.time || 'N/A'})`;
+          } else if (lastDay.checkOuts.length > 0) {
+            lastActivity = `Check-Out (${lastDay.checkOuts[0]?.time || 'N/A'})`;
+          }
+        }
+        
+        const status = leaveDays > 0 ? 'On Leave' : (totalCheckIns > 0 ? 'Active' : 'Inactive');
         
         summaryWsData.push([
           user.employeeName,
           user.employeeId,
           totalDays,
-          checkIns,
-          checkOuts,
-          leaves,
-          lastActivity,
-          status
+          totalCheckIns,
+          totalCheckOuts,
+          leaveDays,
+          avgWorkHours,
+          status,
+          lastActivity
         ]);
       });
       
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryWsData);
       summaryWs['!cols'] = [
         { wch: 25 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, 
-        { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 10 }
+        { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 10 }, { wch: 20 }
       ];
       
       XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
@@ -371,6 +510,7 @@ export default function Dashboard() {
   // Export to PDF
   const exportToPDF = (data: any[], fileName: string, isSingleUser = false) => {
     const doc = new jsPDF();
+    const reportData = getDetailedReportData(data);
     
     // Add header
     doc.setFontSize(20);
@@ -383,8 +523,8 @@ export default function Dashboard() {
     
     let yPos = 30;
     
-    if (isSingleUser && data.length > 0) {
-      const user = data[0];
+    if (isSingleUser && reportData.length > 0) {
+      const user = reportData[0];
       
       // User info
       doc.setFontSize(12);
@@ -395,17 +535,36 @@ export default function Dashboard() {
       yPos += 20;
       
       // Table headers
-      const headers = [['Date', 'Check-In Time', 'Check-In Message', 'Check-Out Time', 'Check-Out Message', 'Leave']];
+      const headers = [['Date', 'Check-Ins', 'Check-Outs', 'Leave', 'Work Hours', 'Messages']];
       
       // Table data
-      const tableData = user.days.map((day: any) => [
-        day.date,
-        day.checkIn?.time || '-',
-        (day.checkIn?.message || '-').substring(0, 40),
-        day.checkOut?.time || '-',
-        (day.checkOut?.message || '-').substring(0, 40),
-        day.leave ? 'Yes' : 'No'
-      ]);
+      const tableData = user.days.map((day: DayRecord) => {
+        const checkInCount = day.checkIns.length;
+        const checkOutCount = day.checkOuts.length;
+        const leaveStatus = day.leaves.length > 0 ? 'Yes' : 'No';
+        
+        let workHours = '0h 0m';
+        if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
+          const firstCheckIn = day.checkIns[0];
+          const lastCheckOut = day.checkOuts[day.checkOuts.length - 1];
+          workHours = calculateWorkHours(firstCheckIn.time, lastCheckOut.time);
+        }
+        
+        const messages = [
+          ...day.checkIns.map(c => c.message),
+          ...day.checkOuts.map(c => c.message),
+          ...day.leaves.map(l => l.message)
+        ].filter(m => m && m !== 'No message').join('; ') || 'None';
+        
+        return [
+          day.date,
+          checkInCount > 0 ? `${checkInCount} (${day.checkIns.map(c => c.time).join(', ')})` : '0',
+          checkOutCount > 0 ? `${checkOutCount} (${day.checkOuts.map(c => c.time).join(', ')})` : '0',
+          leaveStatus,
+          workHours,
+          messages.substring(0, 40) + (messages.length > 40 ? '...' : '')
+        ];
+      });
       
       autoTable(doc, {
         head: headers,
@@ -418,25 +577,25 @@ export default function Dashboard() {
     } else {
       // Summary for all users
       doc.setFontSize(12);
-      doc.text(`Total Employees: ${data.length}`, 14, yPos);
+      doc.text(`Total Employees: ${reportData.length}`, 14, yPos);
       yPos += 10;
       
       const headers = [['Employee Name', 'Employee ID', 'Total Days', 'Check-Ins', 'Check-Outs', 'Leaves', 'Status']];
       
-      const tableData = data.map(user => {
+      const tableData = reportData.map(user => {
         const totalDays = user.days.length;
-        const checkIns = user.days.filter((day: any) => day.checkIn).length;
-        const checkOuts = user.days.filter((day: any) => day.checkOut).length;
-        const leaves = user.days.filter((day: any) => day.leave).length;
-        const status = leaves > 0 ? 'On Leave' : (checkIns > 0 ? 'Active' : 'Inactive');
+        const totalCheckIns = user.days.reduce((sum, day) => sum + day.checkIns.length, 0);
+        const totalCheckOuts = user.days.reduce((sum, day) => sum + day.checkOuts.length, 0);
+        const leaveDays = user.days.filter(day => day.leaves.length > 0).length;
+        const status = leaveDays > 0 ? 'On Leave' : (totalCheckIns > 0 ? 'Active' : 'Inactive');
         
         return [
           user.employeeName,
           user.employeeId,
           totalDays.toString(),
-          checkIns.toString(),
-          checkOuts.toString(),
-          leaves.toString(),
+          totalCheckIns.toString(),
+          totalCheckOuts.toString(),
+          leaveDays.toString(),
           status
         ];
       });
@@ -457,12 +616,10 @@ export default function Dashboard() {
 
   // Handle export based on selected format
   const handleExport = (data: any[], fileName: string, isSingleUser = false) => {
-    const reportData = getDetailedReportData(data);
-    
     if (exportFormat === 'excel') {
-      exportToExcelDetailed(reportData, fileName, isSingleUser);
+      exportToExcelDetailed(data, fileName, isSingleUser);
     } else {
-      exportToPDF(reportData, fileName, isSingleUser);
+      exportToPDF(data, fileName, isSingleUser);
     }
   };
 
@@ -517,7 +674,7 @@ export default function Dashboard() {
   };
 
   // Get detailed user report data for modal
-  const getUserDetailedReport = () => {
+  const getUserDetailedReport = (): UserReport | null => {
     if (!selectedUser || userHistory.length === 0) return null;
     const reportData = getDetailedReportData(userHistory);
     return reportData[0] || null;
@@ -538,7 +695,7 @@ export default function Dashboard() {
     switch(type?.toLowerCase()) {
       case 'check-in': return <CheckCircle className="h-3 w-3" />;
       case 'check-out': return <LogOut className="h-3 w-3" />;
-      case 'leave': return <CatIcon className="h-3 w-3" />;
+      case 'leave': return <Coffee className="h-3 w-3" />;
       default: return <Activity className="h-3 w-3" />;
     }
   };
@@ -556,7 +713,7 @@ export default function Dashboard() {
               <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-amber-300 to-amber-500 bg-clip-text text-transparent">
                 Attendance Pro
               </h1>
-              <p className="text-xs text-gray-400">Enterprise Monitoring System</p>
+              <p className="text-xs text-gray-400">Employee Tracking & History System</p>
             </div>
           </div>
           
@@ -581,7 +738,7 @@ export default function Dashboard() {
                 className="bg-gradient-to-r from-amber-500 to-amber-600 px-4 py-2 rounded-lg text-sm font-semibold hover:shadow-lg hover:shadow-amber-500/20 transition-all duration-300 flex items-center gap-2"
               >
                 <Download className="h-4 w-4" />
-                Export Full Report
+                Export Full History
               </button>
             </div>
           </div>
@@ -595,6 +752,22 @@ export default function Dashboard() {
           <div className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 shadow-2xl">
             <div className="flex justify-between items-start">
               <div>
+                <p className="text-gray-400 text-sm font-medium mb-2">Total Employees</p>
+                <p className="text-3xl font-bold text-white">{stats.totalEmployees}</p>
+              </div>
+              <div className="p-3 bg-gray-900/50 rounded-xl">
+                <Users className="h-6 w-6 text-blue-400" />
+              </div>
+            </div>
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              <TrendingUp className="h-4 w-4 text-green-400" />
+              <span className="text-green-400">Active: {stats.activeMembers}</span>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 shadow-2xl">
+            <div className="flex justify-between items-start">
+              <div>
                 <p className="text-gray-400 text-sm font-medium mb-2">Total Logs</p>
                 <p className="text-3xl font-bold text-white">{stats.totalLogs}</p>
               </div>
@@ -602,27 +775,11 @@ export default function Dashboard() {
                 <BarChart3 className="h-6 w-6 text-amber-400" />
               </div>
             </div>
-            <div className="mt-4 flex items-center gap-2 text-sm">
-              <TrendingUp className="h-4 w-4 text-green-400" />
-              <span className="text-green-400">+{Math.round((logs.length / 100) * 12)} today</span>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 shadow-2xl">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-gray-400 text-sm font-medium mb-2">Active Members</p>
-                <p className="text-3xl font-bold text-white">{stats.activeMembers}</p>
-              </div>
-              <div className="p-3 bg-gray-900/50 rounded-xl">
-                <Users className="h-6 w-6 text-blue-400" />
-              </div>
-            </div>
             <div className="mt-4">
               <div className="w-full bg-gray-800 rounded-full h-2">
                 <div 
                   className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
-                  style={{ width: `${(stats.activeMembers / Math.max(stats.totalLogs, 1)) * 100}%` }}
+                  style={{ width: `${(stats.activeMembers / Math.max(stats.totalEmployees, 1)) * 100}%` }}
                 ></div>
               </div>
             </div>
@@ -631,7 +788,7 @@ export default function Dashboard() {
           <div className="bg-gradient-to-br from-gray-900 to-black p-6 rounded-2xl border border-gray-800 shadow-2xl">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-gray-400 text-sm font-medium mb-2">Check-Ins</p>
+                <p className="text-gray-400 text-sm font-medium mb-2">Check-Ins Today</p>
                 <p className="text-3xl font-bold text-green-400">{stats.checkIns}</p>
               </div>
               <div className="p-3 bg-gray-900/50 rounded-xl">
@@ -647,16 +804,16 @@ export default function Dashboard() {
           <div className="bg-gradient-to-br from-amber-900/30 to-amber-900/10 p-6 rounded-2xl border border-amber-800/30 shadow-2xl">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-amber-200 text-sm font-medium mb-2">System Status</p>
-                <p className="text-3xl font-bold text-amber-300">Operational</p>
+                <p className="text-amber-200 text-sm font-medium mb-2">On Leave Today</p>
+                <p className="text-3xl font-bold text-amber-300">{stats.leaves}</p>
               </div>
               <div className="p-3 bg-amber-900/30 rounded-xl">
-                <Activity className="h-6 w-6 text-amber-300" />
+                <Coffee className="h-6 w-6 text-amber-300" />
               </div>
             </div>
             <div className="mt-4 flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse"></div>
-              <span className="text-sm text-amber-200">All systems normal</span>
+              <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse"></div>
+              <span className="text-sm text-amber-200">{Math.round((stats.leaves / stats.totalEmployees) * 100)}% of team</span>
             </div>
           </div>
         </div>
@@ -669,7 +826,7 @@ export default function Dashboard() {
                 <FileSpreadsheet className="h-5 w-5 text-amber-400" />
                 Export Options
               </h3>
-              <p className="text-sm text-gray-400">Generate detailed attendance reports in Excel or PDF format</p>
+              <p className="text-sm text-gray-400">Generate detailed attendance reports with daily check-in/out history</p>
             </div>
             
             <div className="flex flex-col sm:flex-row gap-3">
@@ -685,7 +842,7 @@ export default function Dashboard() {
                 className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 rounded-xl text-sm font-medium transition-all"
               >
                 <Download className="h-4 w-4" />
-                Full Report ({exportFormat.toUpperCase()})
+                Full History ({exportFormat.toUpperCase()})
               </button>
             </div>
           </div>
@@ -699,7 +856,7 @@ export default function Dashboard() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
                 <input
                   type="text"
-                  placeholder="Search employees by name, ID, or notes..."
+                  placeholder="Search employees by name, ID, or messages..."
                   className="bg-gray-900/50 border border-gray-800 rounded-xl pl-10 pr-4 py-3 w-full focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/50 transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -757,7 +914,7 @@ export default function Dashboard() {
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${filterType === 'leave' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-gray-900/50 text-gray-400 hover:bg-gray-800'}`}
                       onClick={() => setFilterType('leave')}
                     >
-                      <CatIcon className="h-4 w-4" />
+                      <Coffee className="h-4 w-4" />
                       Leave Only
                     </button>
                   </div>
@@ -864,7 +1021,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-xl font-bold text-white">Employee Activity</h2>
-                <p className="text-sm text-gray-400 mt-1">Real-time attendance monitoring</p>
+                <p className="text-sm text-gray-400 mt-1">Click on any employee to view complete daily history</p>
               </div>
               <div className="text-sm text-gray-400">
                 Showing <span className="text-white font-semibold">{filteredLogs.length}</span> of <span className="text-white font-semibold">{latestReports.length}</span> employees
@@ -906,6 +1063,7 @@ export default function Dashboard() {
                   </tr>
                 ) : filteredLogs.map((row: any) => {
                   const userStats = getUserStats(row.userId);
+                  
                   return (
                     <tr 
                       key={row.id} 
@@ -922,7 +1080,6 @@ export default function Dashboard() {
                                 alt={row.userName}
                                 className="h-12 w-12 rounded-xl object-cover border-2 border-gray-700 group-hover:border-amber-500/50 transition-all duration-300"
                                 onError={(e) => {
-                                  // Fallback to initial if image fails to load
                                   const target = e.target as HTMLImageElement;
                                   target.style.display = 'none';
                                   const parent = target.parentElement;
@@ -949,7 +1106,9 @@ export default function Dashboard() {
                           <div>
                             <p className="font-semibold text-white">{row.userName}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              <p className="text-sm text-gray-400">{row.userId}</p>
+                              <span className="text-xs px-2 py-0.5 bg-gray-800 text-gray-300 rounded-full">
+                                {row.userId}
+                              </span>
                               <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-full">
                                 {userStats.daysPresent} days
                               </span>
@@ -982,7 +1141,7 @@ export default function Dashboard() {
                               <span className="text-sm">View Attachment</span>
                             </div>
                           ) : (
-                            <p className="text-gray-400 text-sm truncate">{row.text || 'No notes'}</p>
+                            <p className="text-gray-400 text-sm truncate">{row.text || 'No message'}</p>
                           )}
                         </div>
                       </td>
@@ -998,7 +1157,7 @@ export default function Dashboard() {
                           <button 
                             onClick={() => setSelectedUser(row.userId)}
                             className="p-2 hover:bg-amber-500/10 rounded-lg text-gray-400 hover:text-amber-400 transition-colors"
-                            title="View history"
+                            title="View complete history"
                           >
                             <ChevronRight className="h-4 w-4" />
                           </button>
@@ -1087,21 +1246,13 @@ export default function Dashboard() {
                     <h3 className="text-2xl font-bold text-white">{selectedUserDetails.userName}</h3>
                     <div className="flex flex-wrap gap-2 mt-2">
                       <span className="inline-flex items-center gap-1 px-3 py-1 bg-gray-800 rounded-full text-sm">
-                        <Shield className="h-3 w-3" />
+                        <Hash className="h-3 w-3" />
                         {selectedUserDetails.userId}
                       </span>
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-sm">
-                        <FileText className="h-3 w-3" />
-                        {userHistory.length} Records
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-500/10 text-green-400 rounded-full text-sm">
-                        <CheckCircle className="h-3 w-3" />
-                        {userHistory.filter((h: any) => h.type?.toLowerCase() === 'check-in').length} Check-ins
-                      </span>
-                      {userHistory.filter((h: any) => h.type?.toLowerCase() === 'leave').length > 0 && (
+                      {selectedUserDetails.userDisplayName && (
                         <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-sm">
-                          <CatIcon className="h-3 w-3" />
-                          {userHistory.filter((h: any) => h.type?.toLowerCase() === 'leave').length} Leaves
+                          <User className="h-3 w-3" />
+                          {selectedUserDetails.userDisplayName}
                         </span>
                       )}
                     </div>
@@ -1119,11 +1270,11 @@ export default function Dashboard() {
             {/* Modal Content */}
             <div className="overflow-y-auto max-h-[60vh]">
               <div className="p-6">
-                {/* Daily Attendance Summary */}
+                {/* Employee Performance Stats */}
                 <div className="mb-8 bg-gray-900/30 rounded-xl p-6">
                   <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <CalendarIcon className="h-5 w-5 text-amber-400" />
-                    Daily Attendance Summary
+                    <CalendarDays className="h-5 w-5 text-amber-400" />
+                    Daily Attendance History
                   </h4>
                   
                   {(() => {
@@ -1143,64 +1294,104 @@ export default function Dashboard() {
                           <thead>
                             <tr className="text-gray-400 border-b border-gray-800">
                               <th className="pb-3 text-left">Date</th>
-                              <th className="pb-3 text-left">Check-In Time</th>
-                              <th className="pb-3 text-left">Check-In Message</th>
-                              <th className="pb-3 text-left">Check-Out Time</th>
-                              <th className="pb-3 text-left">Check-Out Message</th>
+                              <th className="pb-3 text-left">Check-Ins</th>
+                              <th className="pb-3 text-left">Check-In Times</th>
+                              <th className="pb-3 text-left">Check-Outs</th>
+                              <th className="pb-3 text-left">Check-Out Times</th>
+                              <th className="pb-3 text-left">Work Hours</th>
                               <th className="pb-3 text-left">Status</th>
+                              <th className="pb-3 text-left">Messages</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {userReport.days.map((day: any, index: number) => (
-                              <tr key={index} className="border-b border-gray-800/50 hover:bg-gray-900/50">
-                                <td className="py-4">{day.date}</td>
-                                <td className="py-4">
-                                  {day.checkIn ? (
-                                    <div className="text-green-400">
-                                      <div className="font-medium">{day.checkIn.time}</div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                                <td className="py-4 max-w-xs">
-                                  {day.checkIn?.message ? (
-                                    <div className="text-gray-300">{day.checkIn.message}</div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                                <td className="py-4">
-                                  {day.checkOut ? (
-                                    <div className="text-red-400">
-                                      <div className="font-medium">{day.checkOut.time}</div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                                <td className="py-4 max-w-xs">
-                                  {day.checkOut?.message ? (
-                                    <div className="text-gray-300">{day.checkOut.message}</div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                                <td className="py-4">
-                                  {day.leave ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded text-xs">
-                                      <CatIcon className="h-3 w-3" />
-                                      On Leave
+                            {userReport.days.map((day: DayRecord, index: number) => {
+                              const checkInTimes = day.checkIns.map(c => c.time).join(', ') || '-';
+                              const checkOutTimes = day.checkOuts.map(c => c.time).join(', ') || '-';
+                              const messages = [
+                                ...day.checkIns.map(c => c.message),
+                                ...day.checkOuts.map(c => c.message),
+                                ...day.leaves.map(l => l.message)
+                              ].filter(m => m && m !== 'No message').join('; ') || 'None';
+                              
+                              let workHours = '0h 0m';
+                              if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
+                                const firstCheckIn = day.checkIns[0];
+                                const lastCheckOut = day.checkOuts[day.checkOuts.length - 1];
+                                workHours = calculateWorkHours(firstCheckIn.time, lastCheckOut.time);
+                              }
+                              
+                              return (
+                                <tr key={index} className="border-b border-gray-800/50 hover:bg-gray-900/50">
+                                  <td className="py-4 font-medium">{day.date}</td>
+                                  <td className="py-4">
+                                    <span className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-xs font-bold ${day.checkIns.length > 0 ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+                                      {day.checkIns.length}
                                     </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/10 text-green-400 rounded text-xs">
-                                      <Home className="h-3 w-3" />
-                                      Present
+                                  </td>
+                                  <td className="py-4">
+                                    {day.checkIns.length > 0 ? (
+                                      <div className="text-green-400 text-xs space-y-1">
+                                        {day.checkIns.map((checkIn, idx) => (
+                                          <div key={idx} className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {checkIn.time}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4">
+                                    <span className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-xs font-bold ${day.checkOuts.length > 0 ? 'bg-red-500/20 text-red-400' : 'bg-gray-800 text-gray-400'}`}>
+                                      {day.checkOuts.length}
                                     </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
+                                  </td>
+                                  <td className="py-4">
+                                    {day.checkOuts.length > 0 ? (
+                                      <div className="text-red-400 text-xs space-y-1">
+                                        {day.checkOuts.map((checkOut, idx) => (
+                                          <div key={idx} className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {checkOut.time}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4">
+                                    <span className={`inline-flex items-center justify-center px-2 py-1 rounded text-xs font-bold ${workHours !== '0h 0m' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
+                                      {workHours}
+                                    </span>
+                                  </td>
+                                  <td className="py-4">
+                                    {day.leaves.length > 0 ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded text-xs">
+                                        <Coffee className="h-3 w-3" />
+                                        On Leave
+                                      </span>
+                                    ) : day.checkIns.length > 0 ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-500/10 text-green-400 rounded text-xs">
+                                        <Home className="h-3 w-3" />
+                                        Present
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-800 text-gray-400 rounded text-xs">
+                                        <AlertCircle className="h-3 w-3" />
+                                        Absent
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-4 max-w-xs">
+                                    <p className="text-gray-300 text-xs truncate" title={messages}>
+                                      {messages}
+                                    </p>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1223,7 +1414,7 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <p className="font-medium text-white">Excel Report</p>
-                          <p className="text-sm text-gray-400">Detailed daily attendance with messages</p>
+                          <p className="text-sm text-gray-400">Detailed daily attendance with check-in/out times</p>
                         </div>
                       </div>
                       <button 
@@ -1262,7 +1453,7 @@ export default function Dashboard() {
                   <div className="mt-4 text-sm text-gray-400">
                     <p className="flex items-center gap-2">
                       <ExternalLink className="h-4 w-4" />
-                      Reports include: Daily check-in/out times, messages, leave status, and attendance summary
+                      Reports include: Daily check-in/out counts, times, messages, leave status, and work hours
                     </p>
                   </div>
                 </div>
@@ -1273,7 +1464,7 @@ export default function Dashboard() {
             <div className="p-6 border-t border-gray-800 bg-black/20">
               <div className="flex justify-between items-center">
                 <div className="text-sm text-gray-400">
-                  Showing {userHistory.length} records • Last updated {new Date().toLocaleTimeString()}
+                  Showing {userHistory.length} records across {getUserDetailedReport()?.days?.length || 0} days • Last updated {new Date().toLocaleTimeString()}
                 </div>
                 <div className="flex gap-3">
                   <button 
@@ -1287,7 +1478,7 @@ export default function Dashboard() {
                     className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:shadow-lg hover:shadow-amber-500/20 rounded-lg font-medium transition-all flex items-center gap-2"
                   >
                     <Download className="h-4 w-4" />
-                    Export Detailed Report
+                    Export Complete History
                   </button>
                 </div>
               </div>

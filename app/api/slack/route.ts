@@ -2,140 +2,47 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-const SLACK_BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
-const CHECK_IN_CHANNEL = "C0ABB105W3S";
-const CHECK_OUT_CHANNEL = "C0AAGM79J6N";
-const LEAVE_CHANNEL = "C0AACUQMB9D";
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
+const CHECK_IN_CHANNEL = process.env.CHECK_IN_CHANNEL || "C0ABB105W3S";
+const CHECK_OUT_CHANNEL = process.env.CHECK_OUT_CHANNEL || "C0AAGM79J6N";
+const LEAVE_CHANNEL = process.env.LEAVE_CHANNEL || "C0AACUQMB9D";
 
 async function getSlackUserInfo(userId: string) {
   try {
     const response = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
-      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+      headers: { 
+        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
     });
     const data = await response.json();
     
+    if (!data.ok) {
+      console.error('Slack API error:', data.error);
+      return {
+        name: `User-${userId.substring(0, 8)}`,
+        profilePicture: null,
+        displayName: null
+      };
+    }
+    
     return {
-      name: data.user?.real_name || data.user?.name || userId,
-      profilePicture: data.user?.profile?.image_72 || 
+      name: data.user?.real_name || data.user?.name || `User-${userId.substring(0, 8)}`,
+      profilePicture: data.user?.profile?.image_192 || 
+                     data.user?.profile?.image_72 || 
                      data.user?.profile?.image_48 || 
                      data.user?.profile?.image_32 || 
                      null,
-      displayName: data.user?.profile?.display_name || null
+      displayName: data.user?.profile?.display_name || data.user?.name || null
     };
   } catch (e) { 
+    console.error('Error fetching Slack user info:', e);
     return {
-      name: userId,
+      name: `User-${userId.substring(0, 8)}`,
       profilePicture: null,
       displayName: null
     };
   }
-}
-
-// Simple emoji mapping for common Slack emojis
-const emojiMap: Record<string, string> = {
-  // Check marks
-  ':white_check_mark:': '✅',
-  ':heavy_check_mark:': '✅',
-  ':ballot_box_with_check:': '☑️',
-  
-  // Status
-  ':x:': '❌',
-  ':heavy_multiplication_x:': '✖️',
-  ':heavy_plus_sign:': '➕',
-  ':heavy_minus_sign:': '➖',
-  
-  // Arrows
-  ':arrow_right:': '➡️',
-  ':arrow_left:': '⬅️',
-  ':arrow_up:': '⬆️',
-  ':arrow_down:': '⬇️',
-  
-  // Common symbols
-  ':warning:': '⚠️',
-  ':exclamation:': '❗',
-  ':question:': '❓',
-  ':information_source:': 'ℹ️',
-  
-  // Faces
-  ':smile:': '😄',
-  ':smiley:': '😃',
-  ':grinning:': '😀',
-  ':blush:': '😊',
-  ':wink:': '😉',
-  ':slightly_smiling_face:': '🙂',
-  ':neutral_face:': '😐',
-  ':confused:': '😕',
-  ':frowning:': '😦',
-  
-  // Flags
-  ':flag-pk:': '🇵🇰',
-  ':flag-us:': '🇺🇸',
-  ':flag-gb:': '🇬🇧',
-  
-  // Time
-  ':clock1:': '🕐',
-  ':clock2:': '🕑',
-  ':clock3:': '🕒',
-  ':clock4:': '🕓',
-  ':clock5:': '🕔',
-  ':clock6:': '🕕',
-  ':clock7:': '🕖',
-  ':clock8:': '🕗',
-  ':clock9:': '🕘',
-  ':clock10:': '🕙',
-  ':clock11:': '🕚',
-  ':clock12:': '🕛',
-  
-  // Weather
-  ':sunny:': '☀️',
-  ':cloud:': '☁️',
-  ':rain_cloud:': '🌧️',
-  ':snow_cloud:': '🌨️',
-  
-  // Hands
-  ':raised_hands:': '🙌',
-  ':clap:': '👏',
-  ':thumbsup:': '👍',
-  ':thumbsdown:': '👎',
-  ':ok_hand:': '👌',
-  ':v:': '✌️',
-  ':pray:': '🙏',
-  
-  // Objects
-  ':computer:': '💻',
-  ':phone:': '📱',
-  ':envelope:': '✉️',
-  ':incoming_envelope:': '📨',
-  ':email:': '📧',
-  ':calendar:': '📅',
-  ':clock:': '🕰️',
-  ':alarm_clock:': '⏰',
-  ':hourglass:': '⏳',
-  
-  // Leaves/Time off
-  ':palm_tree:': '🌴',
-  ':beach:': '🏖️',
-  ':airplane:': '✈️',
-  ':car:': '🚗',
-  ':hospital:': '🏥',
-  ':hotel:': '🏨',
-  ':house:': '🏠',
-  ':office:': '🏢',
-};
-
-// Function to convert emoji codes to actual emojis
-function convertEmojis(text: string): string {
-  if (!text) return '';
-  
-  let convertedText = text;
-  
-  // Replace all known emoji codes
-  Object.keys(emojiMap).forEach(emojiCode => {
-    const regex = new RegExp(emojiCode, 'g');
-    convertedText = convertedText.replace(regex, emojiMap[emojiCode]);
-  });
-  
-  return convertedText;
 }
 
 export async function POST(req: Request) {
@@ -176,9 +83,6 @@ export async function POST(req: Request) {
         type = 'Leave';
       }
 
-      // Convert emoji codes to actual emojis
-      const processedText = convertEmojis(text || "");
-
       // Get image from attachments if available
       const imageUrl = files && files.length > 0 ? files[0].url_private_download : null;
 
@@ -190,7 +94,7 @@ export async function POST(req: Request) {
         userDisplayName: userInfo.displayName,
         date: pktDate,
         time: pktTime,
-        text: processedText,
+        text: text || "",
         imageUrl: imageUrl,
         type: type,
         channel: channel,
@@ -198,9 +102,11 @@ export async function POST(req: Request) {
         ts: ts
       };
 
-      // Save to Firestore
-      const docId = ts.replace('.', '-');
+      // Save to Firestore with unique ID
+      const docId = `${user}_${ts.replace('.', '_')}`;
       await setDoc(doc(db, "attendance", docId), docData);
+      
+      console.log(`Saved ${type} record for ${userInfo.name} at ${pktTime} on ${pktDate}`);
     }
     
     return NextResponse.json({ ok: true });
