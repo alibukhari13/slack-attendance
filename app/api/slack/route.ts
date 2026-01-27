@@ -31,27 +31,46 @@ async function getSlackUserInfo(userId: string) {
   }
 }
 
+// Simple emoji mapping for common Slack emojis
 const emojiMap: Record<string, string> = {
   // Check marks
   ':white_check_mark:': '✅',
   ':heavy_check_mark:': '✅',
+  ':ballot_box_with_check:': '☑️',
   
   // Status
   ':x:': '❌',
   ':heavy_multiplication_x:': '✖️',
+  ':heavy_plus_sign:': '➕',
+  ':heavy_minus_sign:': '➖',
+  
+  // Arrows
+  ':arrow_right:': '➡️',
+  ':arrow_left:': '⬅️',
+  ':arrow_up:': '⬆️',
+  ':arrow_down:': '⬇️',
   
   // Common symbols
   ':warning:': '⚠️',
   ':exclamation:': '❗',
+  ':question:': '❓',
+  ':information_source:': 'ℹ️',
   
   // Faces
   ':smile:': '😄',
   ':smiley:': '😃',
   ':grinning:': '😀',
   ':blush:': '😊',
+  ':wink:': '😉',
+  ':slightly_smiling_face:': '🙂',
+  ':neutral_face:': '😐',
+  ':confused:': '😕',
+  ':frowning:': '😦',
   
   // Flags
   ':flag-pk:': '🇵🇰',
+  ':flag-us:': '🇺🇸',
+  ':flag-gb:': '🇬🇧',
   
   // Time
   ':clock1:': '🕐',
@@ -70,19 +89,28 @@ const emojiMap: Record<string, string> = {
   // Weather
   ':sunny:': '☀️',
   ':cloud:': '☁️',
+  ':rain_cloud:': '🌧️',
+  ':snow_cloud:': '🌨️',
   
   // Hands
   ':raised_hands:': '🙌',
   ':clap:': '👏',
   ':thumbsup:': '👍',
   ':thumbsdown:': '👎',
+  ':ok_hand:': '👌',
+  ':v:': '✌️',
+  ':pray:': '🙏',
   
   // Objects
   ':computer:': '💻',
   ':phone:': '📱',
   ':envelope:': '✉️',
+  ':incoming_envelope:': '📨',
+  ':email:': '📧',
   ':calendar:': '📅',
   ':clock:': '🕰️',
+  ':alarm_clock:': '⏰',
+  ':hourglass:': '⏳',
   
   // Leaves/Time off
   ':palm_tree:': '🌴',
@@ -90,84 +118,24 @@ const emojiMap: Record<string, string> = {
   ':airplane:': '✈️',
   ':car:': '🚗',
   ':hospital:': '🏥',
+  ':hotel:': '🏨',
   ':house:': '🏠',
   ':office:': '🏢',
 };
 
+// Function to convert emoji codes to actual emojis
 function convertEmojis(text: string): string {
   if (!text) return '';
   
   let convertedText = text;
   
+  // Replace all known emoji codes
   Object.keys(emojiMap).forEach(emojiCode => {
     const regex = new RegExp(emojiCode, 'g');
     convertedText = convertedText.replace(regex, emojiMap[emojiCode]);
   });
   
   return convertedText;
-}
-
-// Function to parse leave duration from text
-function parseLeaveDuration(text: string): {
-  startDate: string | null;
-  endDate: string | null;
-  duration: string;
-} {
-  if (!text) return { startDate: null, endDate: null, duration: '1 day' };
-  
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  
-  // Try to extract dates from common patterns
-  const datePatterns = [
-    /(\d{1,2})\/(\d{1,2})\/(\d{4})/g,
-    /(\d{1,2})-(\d{1,2})-(\d{4})/g,
-    /(\d{4})-(\d{1,2})-(\d{1,2})/g,
-    /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/gi,
-  ];
-  
-  let startDate: Date | null = null;
-  let endDate: Date | null = null;
-  
-  for (const pattern of datePatterns) {
-    const matches = [...text.matchAll(pattern)];
-    if (matches.length >= 1) {
-      try {
-        startDate = new Date(matches[0][0]);
-        if (matches.length >= 2) {
-          endDate = new Date(matches[1][0]);
-        } else {
-          // If only one date, assume one day leave
-          endDate = new Date(startDate);
-        }
-        break;
-      } catch (e) {
-        continue;
-      }
-    }
-  }
-  
-  // If no dates found, assume today
-  if (!startDate) {
-    startDate = today;
-    endDate = today;
-  }
-  
-  // Format dates
-  const formatDate = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
-  
-  // Calculate duration
-  const durationDays = Math.ceil((endDate!.getTime() - startDate!.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-  const duration = durationDays === 1 ? '1 day' : `${durationDays} days`;
-  
-  return {
-    startDate: formatDate(startDate),
-    endDate: formatDate(endDate!),
-    duration
-  };
 }
 
 export async function POST(req: Request) {
@@ -183,7 +151,7 @@ export async function POST(req: Request) {
     if (body.event && body.event.type === 'message' && !body.event.bot_id) {
       const { user, channel, ts, text, files } = body.event;
       
-      // Get user info
+      // Get user info with profile picture
       const userInfo = await getSlackUserInfo(user);
       
       const dateObj = new Date(parseFloat(ts) * 1000);
@@ -208,14 +176,14 @@ export async function POST(req: Request) {
         type = 'Leave';
       }
 
-      // Convert emojis
+      // Convert emoji codes to actual emojis
       const processedText = convertEmojis(text || "");
 
       // Get image from attachments if available
       const imageUrl = files && files.length > 0 ? files[0].url_private_download : null;
 
-      // Prepare document data
-      const docData: any = {
+      // Create document data
+      const docData = {
         userId: user,
         userName: userInfo.name,
         userProfilePicture: userInfo.profilePicture,
@@ -230,43 +198,7 @@ export async function POST(req: Request) {
         ts: ts
       };
 
-      // If it's a leave, parse leave duration
-      if (type === 'Leave') {
-        const leaveInfo = parseLeaveDuration(processedText);
-        docData.leaveStartDate = leaveInfo.startDate;
-        docData.leaveEndDate = leaveInfo.endDate;
-        docData.leaveDuration = leaveInfo.duration;
-        
-        // For leave messages, also create daily records for each day of leave
-        if (leaveInfo.startDate && leaveInfo.endDate) {
-          const start = new Date(leaveInfo.startDate);
-          const end = new Date(leaveInfo.endDate);
-          
-          // Create daily leave records
-          const currentDate = new Date(start);
-          while (currentDate <= end) {
-            const dailyDate = currentDate.toISOString().split('T')[0];
-            const dailyTime = currentDate.getTime() === start.getTime() ? pktTime : '00:00 AM';
-            
-            const dailyDocId = `${ts.replace('.', '-')}-${dailyDate}`;
-            const dailyDocData = {
-              ...docData,
-              date: dailyDate,
-              time: dailyTime,
-              isDailyLeaveRecord: true,
-              originalTs: ts
-            };
-            
-            // Save each daily leave record
-            await setDoc(doc(db, "attendance", dailyDocId), dailyDocData);
-            
-            // Move to next day
-            currentDate.setDate(currentDate.getDate() + 1);
-          }
-        }
-      }
-
-      // Save the main record
+      // Save to Firestore
       const docId = ts.replace('.', '-');
       await setDoc(doc(db, "attendance", docId), docData);
     }
