@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useEffect, useState, useMemo } from 'react'; // ✅ Added React import
+import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, query, onSnapshot, orderBy, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { 
@@ -177,18 +177,6 @@ const emojiMap: Record<string, string> = {
   ':cinema:': '🎦',
   ':low_brightness:': '🔅',
   ':high_brightness:': '🔆',
-  ':signal_strength:': '📶',
-  ':vibration_mode:': '📳',
-  ':mobile_phone_off:': '📴',
-  ':no_mobile_phones:': '📵',
-  ':signal_strength:': '📶',
-  ':camera:': '📷',
-  ':video_camera:': '📹',
-  ':tv:': '📺',
-  ':radio:': '📻',
-  ':vhs:': '📼',
-  ':film_projector:': '📽️',
-  ':prayer_beads:': '📿',
 };
 
 // Function to convert emoji shortcodes to actual emojis
@@ -196,7 +184,6 @@ const convertEmojis = (text: string): string => {
   if (!text) return '';
   let result = text;
   
-  // Replace all emoji shortcodes
   Object.entries(emojiMap).forEach(([shortcode, emoji]) => {
     const regex = new RegExp(shortcode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
     result = result.replace(regex, emoji);
@@ -206,12 +193,12 @@ const convertEmojis = (text: string): string => {
 };
 
 // Helper functions
-const getInitials = (name: string) => {
+const getInitials = (name: string): string => {
   if (!name) return 'U';
   return name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2);
 };
 
-const getGradientColor = (userId: string) => {
+const getGradientColor = (userId: string): string => {
   const colors = [
     'from-blue-500 to-cyan-500',
     'from-purple-500 to-pink-500',
@@ -231,24 +218,46 @@ const safeParseDate = (dateString: string | undefined): Date => {
   return new Date(0);
 };
 
+// FIXED: calculateWorkHours function
 const calculateWorkHours = (checkInTime: string, checkOutTime: string): string => {
-  if (!checkInTime || !checkOutTime) return '0h 0m';
+  if (!checkInTime || !checkOutTime || checkInTime === '-' || checkOutTime === '-') return '0h 0m';
+  
   try {
-    const parseTime = (timeStr: string) => {
-      const [time, period] = timeStr.split(' ');
-      const [hours, minutes] = time.split(':').map(Number);
-      let totalMinutes = hours * 60 + minutes;
-      if (period === 'PM' && hours !== 12) totalMinutes += 12 * 60;
-      if (period === 'AM' && hours === 12) totalMinutes -= 12 * 60;
-      return totalMinutes;
+    const parseTime = (timeStr: string): number => {
+      // Handle time formats like "09:30 AM" or "2:45 PM"
+      const [timePart, period] = timeStr.split(' ');
+      const [hoursStr, minutesStr] = timePart.split(':');
+      
+      let hours = parseInt(hoursStr, 10);
+      const minutes = parseInt(minutesStr || '0', 10);
+      
+      // Convert to 24-hour format
+      if (period?.toUpperCase() === 'PM' && hours < 12) {
+        hours += 12;
+      }
+      if (period?.toUpperCase() === 'AM' && hours === 12) {
+        hours = 0;
+      }
+      
+      return hours * 60 + minutes;
     };
+
     const startMinutes = parseTime(checkInTime);
     const endMinutes = parseTime(checkOutTime);
-    const diffMinutes = endMinutes < startMinutes ? (24 * 60 - startMinutes) + endMinutes : endMinutes - startMinutes;
+    
+    let diffMinutes = endMinutes - startMinutes;
+    
+    // Handle overnight shifts (check out next day)
+    if (diffMinutes < 0) {
+      diffMinutes += 24 * 60; // Add 24 hours
+    }
+    
     const hours = Math.floor(diffMinutes / 60);
     const minutes = diffMinutes % 60;
+    
     return `${hours}h ${minutes}m`;
   } catch (error) {
+    console.error('Error calculating work hours:', error);
     return '0h 0m';
   }
 };
@@ -276,7 +285,6 @@ export default function Dashboard() {
           else timestamp = new Date(data.ts);
         }
         
-        // Convert emojis in text
         const convertedText = convertEmojis(data.text || '');
         
         return { 
@@ -296,7 +304,6 @@ export default function Dashboard() {
   const employees = useMemo(() => {
     const userMap = new Map();
     logs.forEach(log => {
-      // Keep the LATEST log for each user to show current status
       if (!userMap.has(log.userId) || (userMap.get(log.userId).timestamp && log.timestamp && log.timestamp > userMap.get(log.userId).timestamp)) {
         userMap.set(log.userId, {
           userId: log.userId,
@@ -370,7 +377,12 @@ export default function Dashboard() {
       if (!dateKey) dateKey = 'Unknown Date';
       
       if (!user.days.has(dateKey)) {
-        user.days.set(dateKey, { date: dateKey, checkIns: [], checkOuts: [], leaves: [] });
+        user.days.set(dateKey, { 
+          date: dateKey, 
+          checkIns: [], 
+          checkOuts: [], 
+          leaves: [] 
+        });
       }
       
       const day = user.days.get(dateKey);
@@ -382,9 +394,13 @@ export default function Dashboard() {
         timestamp: log.timestamp 
       };
       
-      if (log.type?.toLowerCase() === 'check-in') day.checkIns.push(record);
-      else if (log.type?.toLowerCase() === 'check-out') day.checkOuts.push(record);
-      else if (log.type?.toLowerCase() === 'leave') day.leaves.push(record);
+      if (log.type?.toLowerCase() === 'check-in') {
+        day.checkIns.push(record);
+      } else if (log.type?.toLowerCase() === 'check-out') {
+        day.checkOuts.push(record);
+      } else if (log.type?.toLowerCase() === 'leave') {
+        day.leaves.push(record);
+      }
     });
     
     return Array.from(userMap.values()).map(user => ({
@@ -400,77 +416,166 @@ export default function Dashboard() {
     }));
   };
 
+  // FIXED: exportToExcel function
   const exportToExcel = (data: any[], fileName: string) => {
-    const reportData = getDetailedReportData(data);
-    if (reportData.length === 0) return;
-    
-    const user = reportData[0];
-    const wsData = [
-      ['EMPLOYEE ATTENDANCE REPORT'],
-      [`Employee: ${user.employeeName} (${user.employeeId})`],
-      [''],
-      ['Date', 'Check-In', 'Check-Out', 'Work Hours', 'Status', 'Messages', 'Images']
-    ];
-
-    user.days.forEach(day => {
-      const checkIn = day.checkIns.length > 0 ? day.checkIns[0].time : '-';
-      const checkOut = day.checkOuts.length > 0 ? day.checkOuts[day.checkOuts.length - 1].time : '-';
-      let workHours = '-';
-      if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
-        workHours = calculateWorkHours(day.checkIns[0].time, day.checkOuts[day.checkOuts.length - 1].time);
+    try {
+      const reportData = getDetailedReportData(data);
+      if (!reportData || reportData.length === 0) {
+        alert('No data to export');
+        return;
       }
-      const status = day.leaves.length > 0 ? 'Leave' : (day.checkIns.length > 0 ? 'Present' : 'Absent');
-      const messages = [...day.checkIns, ...day.checkOuts, ...day.leaves]
-        .map(r => r.message)
-        .filter(Boolean)
-        .join(' | ');
-      const images = [...day.checkIns, ...day.checkOuts, ...day.leaves]
-        .filter(r => r.image)
-        .map(r => 'Yes')
-        .join(', ') || 'No';
+      
+      const user = reportData[0];
+      const wsData = [
+        ['EMPLOYEE ATTENDANCE REPORT'],
+        [`Employee: ${user.employeeName || 'Unknown'} (${user.employeeId || 'N/A'})`],
+        [`Report Generated: ${format(new Date(), 'MMMM dd, yyyy hh:mm a')}`],
+        [''],
+        ['Date', 'Check-In Time', 'Check-Out Time', 'Work Hours', 'Status', 'Messages', 'Attachments']
+      ];
 
-      wsData.push([day.date, checkIn, checkOut, workHours, status, messages, images]);
-    });
+      // Safely iterate through days
+      user.days.forEach((day: any) => {
+        const checkIns = day.checkIns || [];
+        const checkOuts = day.checkOuts || [];
+        const leaves = day.leaves || [];
+        
+        const checkInTime = checkIns.length > 0 ? checkIns[0]?.time || '-' : '-';
+        const checkOutTime = checkOuts.length > 0 ? checkOuts[checkOuts.length - 1]?.time || '-' : '-';
+        
+        let workHours = '-';
+        if (checkInTime !== '-' && checkOutTime !== '-') {
+          workHours = calculateWorkHours(checkInTime, checkOutTime);
+        }
+        
+        const status = leaves.length > 0 ? 'Leave' : (checkIns.length > 0 ? 'Present' : 'Absent');
+        
+        const allRecords = [...checkIns, ...checkOuts, ...leaves];
+        const messages = allRecords
+          .map((r: any) => r?.message || '')
+          .filter((msg: string) => msg && msg.trim() !== '')
+          .join(' | ') || '-';
+        
+        const hasAttachments = allRecords.some((r: any) => r?.image && r.image !== 'No image');
+        const attachments = hasAttachments ? 'Yes' : 'No';
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
-    const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), `${fileName}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+        wsData.push([
+          day.date || '-',
+          checkInTime,
+          checkOutTime,
+          workHours,
+          status,
+          messages,
+          attachments
+        ]);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      
+      // Set column widths
+      const colWidths = [
+        { wch: 12 }, // Date
+        { wch: 12 }, // Check-In Time
+        { wch: 12 }, // Check-Out Time
+        { wch: 12 }, // Work Hours
+        { wch: 10 }, // Status
+        { wch: 40 }, // Messages
+        { wch: 12 }  // Attachments
+      ];
+      ws['!cols'] = colWidths;
+      
+      XLSX.utils.book_append_sheet(wb, ws, 'Attendance Report');
+      
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      
+      const safeFileName = fileName.replace(/[^\w\s]/gi, '');
+      saveAs(blob, `${safeFileName}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('Error exporting to Excel. Please try again.');
+    }
   };
 
+  // FIXED: exportToPDF function
   const exportToPDF = (data: any[], fileName: string) => {
-    const reportData = getDetailedReportData(data);
-    if (reportData.length === 0) return;
-    
-    const user = reportData[0];
-    const doc = new jsPDF();
-    
-    doc.setFontSize(18);
-    doc.text('Attendance Report', 14, 20);
-    doc.setFontSize(12);
-    doc.text(`Employee: ${user.employeeName}`, 14, 30);
-    doc.text(`ID: ${user.employeeId}`, 14, 37);
-    doc.text(`Generated: ${format(new Date(), 'yyyy-MM-dd')}`, 14, 44);
-
-    const rows = user.days.map(day => {
-      const checkIn = day.checkIns.length > 0 ? day.checkIns[0].time : '-';
-      const checkOut = day.checkOuts.length > 0 ? day.checkOuts[day.checkOuts.length - 1].time : '-';
-      let workHours = '-';
-      if (day.checkIns.length > 0 && day.checkOuts.length > 0) {
-        workHours = calculateWorkHours(day.checkIns[0].time, day.checkOuts[day.checkOuts.length - 1].time);
+    try {
+      const reportData = getDetailedReportData(data);
+      if (!reportData || reportData.length === 0) {
+        alert('No data to export');
+        return;
       }
-      const status = day.leaves.length > 0 ? 'Leave' : (day.checkIns.length > 0 ? 'Present' : 'Absent');
-      return [day.date, checkIn, checkOut, workHours, status];
-    });
-
-    autoTable(doc, {
-      head: [['Date', 'Check-In', 'Check-Out', 'Hours', 'Status']],
-      body: rows,
-      startY: 50,
-    });
-
-    doc.save(`${fileName}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+      
+      const user = reportData[0];
+      const doc = new jsPDF();
+      
+      // Title
+      doc.setFontSize(18);
+      doc.setTextColor(40, 40, 40);
+      doc.text('ATTENDANCE REPORT', 105, 20, { align: 'center' });
+      
+      // Subtitle
+      doc.setFontSize(12);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Employee: ${user.employeeName || 'Unknown'}`, 14, 35);
+      doc.text(`ID: ${user.employeeId || 'N/A'}`, 14, 42);
+      doc.text(`Generated: ${format(new Date(), 'MMMM dd, yyyy')}`, 14, 49);
+      
+      // Table headers
+      const headers = [['Date', 'Check-In', 'Check-Out', 'Hours', 'Status']];
+      
+      // Table data
+      const tableData = user.days.map((day: any) => {
+        const checkIns = day.checkIns || [];
+        const checkOuts = day.checkOuts || [];
+        const leaves = day.leaves || [];
+        
+        const checkInTime = checkIns.length > 0 ? checkIns[0]?.time || '-' : '-';
+        const checkOutTime = checkOuts.length > 0 ? checkOuts[checkOuts.length - 1]?.time || '-' : '-';
+        
+        let workHours = '-';
+        if (checkInTime !== '-' && checkOutTime !== '-') {
+          workHours = calculateWorkHours(checkInTime, checkOutTime);
+        }
+        
+        const status = leaves.length > 0 ? 'Leave' : (checkIns.length > 0 ? 'Present' : 'Absent');
+        
+        return [
+          day.date || '-',
+          checkInTime,
+          checkOutTime,
+          workHours,
+          status
+        ];
+      });
+      
+      // Create table
+      autoTable(doc, {
+        head: headers,
+        body: tableData,
+        startY: 60,
+        theme: 'grid',
+        headStyles: { fillColor: [59, 130, 246] },
+        margin: { top: 10 },
+        styles: { fontSize: 10 },
+        columnStyles: {
+          0: { cellWidth: 30 },
+          1: { cellWidth: 30 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 25 }
+        }
+      });
+      
+      const safeFileName = fileName.replace(/[^\w\s]/gi, '');
+      doc.save(`${safeFileName}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    } catch (error) {
+      console.error('Error exporting to PDF:', error);
+      alert('Error exporting to PDF. Please try again.');
+    }
   };
 
   const getActivityType = (type: string) => {
