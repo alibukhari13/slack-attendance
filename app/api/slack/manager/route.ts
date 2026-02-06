@@ -5,9 +5,9 @@ import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 // ⚠️ Credentials
-const BOT_TOKEN = "xoxb-YOUR_BOT_TOKEN_HERE"; // Aapka existing Bot Token
-const CLIENT_ID = "YOUR_CLIENT_ID"; // Same as above
-const REDIRECT_URI = "http://localhost:3000/api/auth/callback";
+const BOT_TOKEN = "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1"; // Aapka existing Bot Token
+const CLIENT_ID = "10369585956705.10360275949988"; // Same as above
+const REDIRECT_URI = "https://slack-attendance.vercel.app/api/slack";
 
 export async function POST(req: Request) {
   try {
