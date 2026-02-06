@@ -1,3 +1,6 @@
+/* app/page.tsx */
+
+
 import Link from "next/link";
 import { Activity, Shield, Zap, Users, ArrowRight, CheckCircle } from 'lucide-react';
 

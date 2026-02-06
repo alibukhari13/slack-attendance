@@ -1,3 +1,5 @@
+//app/api/slack/route.ts
+
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
