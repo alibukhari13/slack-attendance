@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-const SLACK_CLIENT_ID = "10369585956705.10360275949988";
-const SLACK_CLIENT_SECRET = "cb16231375056216a32d72d14f6b95fd";
+const SLACK_CLIENT_ID = "2545190050563.10491030504784";
+const SLACK_CLIENT_SECRET = "3e386e8d575392781d507336f68e1619";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
 export async function GET(req: Request) {

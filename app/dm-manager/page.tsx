@@ -1,11 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/immutability */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/dm-manager/page.tsx
+
 "use client";
 import React, { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle, Trash2 } from 'lucide-react'; // 👈 Trash2 import kiya
+import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle, Trash2, Edit, Image as ImageIcon, X, Check, Paperclip } from 'lucide-react';
+import { convertEmojis } from '@/utils/emojiConverter';
 
 export default function DMManager() {
   const [connectedUsers, setConnectedUsers] = useState<any[]>([]);
@@ -17,6 +19,9 @@ export default function DMManager() {
   
   const [inviteId, setInviteId] = useState('');
   const [inviteStatus, setInviteStatus] = useState<{msg: string, type: 'success' | 'error' | ''}>({msg: '', type: ''});
+  
+  const [editingMessage, setEditingMessage] = useState<{ts: string, text: string} | null>(null);
+  const [editText, setEditText] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "slack_tokens"), (snap) => {
@@ -57,10 +62,15 @@ export default function DMManager() {
     if(!inputText.trim()) return;
     await fetch('/api/slack/manager', {
         method: 'POST',
-        body: JSON.stringify({ action: 'send_as_user', targetUserId: activeUser.id, channelId: activeChat.id, text: inputText })
+        body: JSON.stringify({ 
+          action: 'send_as_user', 
+          targetUserId: activeUser.id, 
+          channelId: activeChat.id, 
+          text: inputText 
+        })
     });
     setInputText('');
-    loadMessages();
+    setTimeout(loadMessages, 500);
   };
 
   const sendInvite = async () => {
@@ -85,19 +95,133 @@ export default function DMManager() {
     }
   };
 
-  // 👇 DELETE FUNCTION (NEW)
   const handleDeleteUser = async (userId: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Taakay user select na ho jaye
+    e.stopPropagation();
     if(!confirm("Are you sure you want to remove this employee?")) return;
 
-    // UI se foran hatana (Optimistic Update)
-    if(activeUser?.id === userId) { setActiveUser(null); setChats([]); }
+    if(activeUser?.id === userId) { 
+      setActiveUser(null); 
+      setChats([]); 
+      setActiveChat(null);
+    }
     
-    // API Call to delete from Firebase
     await fetch('/api/slack/manager', {
         method: 'POST',
         body: JSON.stringify({ action: 'delete_user', targetUserId: userId })
     });
+  };
+
+  const deleteMessage = async (messageTs: string) => {
+    if(!activeUser || !activeChat || !confirm("Delete this message from Slack?")) return;
+    
+    try {
+      const res = await fetch('/api/slack/manager', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'delete_message',
+          targetUserId: activeUser.id,
+          channelId: activeChat.id,
+          messageTs: messageTs
+        })
+      });
+      
+      const data = await res.json();
+      if(data.success) {
+        // Remove from local state
+        setMessages(messages.filter(m => m.ts !== messageTs));
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      alert('Failed to delete message');
+    }
+  };
+
+  const startEditing = (message: any) => {
+    setEditingMessage({ ts: message.ts, text: message.text });
+    setEditText(message.text);
+  };
+
+  const cancelEditing = () => {
+    setEditingMessage(null);
+    setEditText('');
+  };
+
+  const saveEdit = async () => {
+    if(!activeUser || !activeChat || !editingMessage || !editText.trim()) return;
+    
+    try {
+      const res = await fetch('/api/slack/manager', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'edit_message',
+          targetUserId: activeUser.id,
+          channelId: activeChat.id,
+          messageTs: editingMessage.ts,
+          newText: editText
+        })
+      });
+      
+      const data = await res.json();
+      if(data.success) {
+        // Update in local state
+        setMessages(messages.map(m => 
+          m.ts === editingMessage.ts 
+            ? { ...m, text: editText }
+            : m
+        ));
+        setEditingMessage(null);
+        setEditText('');
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      alert('Failed to edit message');
+    }
+  };
+
+  // Function to render message content with emojis and images
+  const renderMessageContent = (message: any) => {
+    const textWithEmojis = convertEmojis(message.text || '');
+    
+    return (
+      <div>
+        <div className="whitespace-pre-wrap break-words">{textWithEmojis}</div>
+        
+        {/* Display images if present */}
+        {message.files && message.files.map((file: any, index: number) => (
+          <div key={index} className="mt-2">
+            {file.mime_type && file.mime_type.startsWith('image/') ? (
+              <div className="relative group">
+                <img 
+                  src={file.thumb_360 || file.url_private} 
+                  alt={file.name || 'Image'}
+                  className="max-w-full max-h-64 rounded-lg border border-gray-700 cursor-pointer"
+                  onClick={() => window.open(file.url_private_download, '_blank')}
+                />
+                <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
+                  <ImageIcon className="h-3 w-3 inline mr-1" />
+                  Image
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-2 bg-gray-800/50 rounded border border-gray-700">
+                <Paperclip className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-300">{file.name}</span>
+                <a 
+                  href={file.url_private_download} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="ml-auto text-blue-400 hover:text-blue-300 text-xs"
+                >
+                  Download
+                </a>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   return (
@@ -145,14 +269,15 @@ export default function DMManager() {
                         className={`group w-full flex items-center justify-between gap-3 p-3 rounded-lg cursor-pointer transition-all mb-1 ${activeUser?.id === u.id ? 'bg-amber-500/20 text-white border border-amber-500/50' : 'text-gray-400 hover:bg-gray-800'}`}
                     >
                         <div className="flex items-center gap-3 overflow-hidden">
-                            <img src={u.image || "https://ca.slack-edge.com/T00000000-U00000000-g00000000000-512"} className="w-8 h-8 rounded-full bg-gray-700" />
+                            <img src={u.image || "https://ca.slack-edge.com/T00000000-U00000000-g00000000000-512"} 
+                                 className="w-8 h-8 rounded-full bg-gray-700" 
+                                 alt={u.name} />
                             <div className="overflow-hidden">
                                 <div className="font-medium text-sm truncate">{u.name}</div>
                                 <div className="text-[10px] opacity-60 truncate">{u.id}</div>
                             </div>
                         </div>
                         
-                        {/* DELETE BUTTON - Sirf Hover par dikhega */}
                         <button 
                             onClick={(e) => handleDeleteUser(u.id, e)}
                             className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
@@ -179,7 +304,10 @@ export default function DMManager() {
                         onClick={() => setActiveChat(chat)}
                         className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 transition-colors ${activeChat?.id === chat.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}
                     >
-                        {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex items-center justify-center"><User className="w-5 h-5 text-gray-400" /></div>}
+                        {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" alt={chat.name} /> : 
+                         <div className="w-9 h-9 bg-gray-700 rounded-lg flex items-center justify-center">
+                            <User className="w-5 h-5 text-gray-400" />
+                         </div>}
                         <div className="text-left overflow-hidden flex-1">
                             <div className="text-sm font-medium text-gray-200 truncate">{chat.name}</div>
                             <div className="text-xs text-gray-500 truncate">ID: {chat.user || chat.id}</div>
@@ -201,20 +329,84 @@ export default function DMManager() {
                                 <Lock className="h-3 w-3" /> Live Control
                             </span>
                         </div>
+                        <button 
+                            onClick={loadMessages}
+                            className="text-sm text-gray-400 hover:text-white px-3 py-1 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
+                        >
+                            Refresh
+                        </button>
                     </div>
 
                     {/* Messages */}
                     <div className="flex-1 overflow-y-auto p-6 flex flex-col-reverse gap-4">
-                         <div className="flex flex-col gap-2">
+                         <div className="flex flex-col gap-4">
                             {messages.map((m, i) => {
-                                const isMe = m.user === activeUser.id; 
+                                const isMe = m.user === activeUser.id;
+                                
+                                if (editingMessage?.ts === m.ts) {
+                                    return (
+                                        <div key={i} className="flex justify-end">
+                                            <div className="max-w-[75%] w-full p-3 bg-gray-800 border border-blue-500 rounded-2xl">
+                                                <textarea
+                                                    value={editText}
+                                                    onChange={(e) => setEditText(e.target.value)}
+                                                    className="w-full bg-transparent text-white resize-none outline-none"
+                                                    rows={3}
+                                                    autoFocus
+                                                />
+                                                <div className="flex gap-2 mt-2 justify-end">
+                                                    <button
+                                                        onClick={cancelEditing}
+                                                        className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors flex items-center gap-1"
+                                                    >
+                                                        <X className="h-3 w-3" /> Cancel
+                                                    </button>
+                                                    <button
+                                                        onClick={saveEdit}
+                                                        className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors flex items-center gap-1"
+                                                    >
+                                                        <Check className="h-3 w-3" /> Save
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                
                                 return (
                                     <div key={i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[75%] p-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}>
-                                            {m.text}
+                                        <div className={`group relative max-w-[75%] p-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-gray-800 text-gray-200 rounded-tl-sm'}`}>
+                                            {renderMessageContent(m)}
+                                            
+                                            {/* Action buttons for messages sent by the active user */}
+                                            {isMe && (
+                                                <div className="absolute -right-10 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                                    <button
+                                                        onClick={() => startEditing(m)}
+                                                        className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded text-gray-300 hover:text-white"
+                                                        title="Edit Message"
+                                                    >
+                                                        <Edit className="h-3 w-3" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteMessage(m.ts)}
+                                                        className="p-1.5 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 hover:text-red-200"
+                                                        title="Delete Message"
+                                                    >
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                            
+                                            <div className="text-xs opacity-70 mt-1">
+                                                {new Date(parseFloat(m.ts) * 1000).toLocaleTimeString([], { 
+                                                    hour: '2-digit', 
+                                                    minute: '2-digit' 
+                                                })}
+                                            </div>
                                         </div>
                                     </div>
-                                )
+                                );
                             })}
                         </div>
                     </div>
@@ -226,7 +418,7 @@ export default function DMManager() {
                                 value={inputText}
                                 onChange={e => setInputText(e.target.value)}
                                 className="flex-1 bg-gray-800 border-gray-700 border rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                                placeholder={`Send message as ${activeUser.name}...`}
+                                placeholder={`Send message as ${activeUser?.name}...`}
                             />
                             <button type="submit" className="bg-blue-600 hover:bg-blue-500 p-3 rounded-xl transition-colors shadow-lg shadow-blue-900/20">
                                 <Send className="h-5 w-5" />
