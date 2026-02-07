@@ -1,12 +1,10 @@
+
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
-// 👇 YAHAN APNI ASAL KEYS DALAIN (Basic Information page se)
 const SLACK_CLIENT_ID = "10369585956705.10360275949988";         // Example: 525608...
-const SLACK_CLIENT_SECRET = "cb16231375056216a32d72d14f6b95fd"; // Example: 8f4a2b...
-
-// 👇 Ye URL ab aapke Vercel wala hai
+const SLACK_CLIENT_SECRET = "cb16231375056216a32d72d14f6b95fd"; 
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback"; 
 
 export async function GET(req: Request) {
@@ -16,7 +14,7 @@ export async function GET(req: Request) {
   if (!code) return NextResponse.json({ error: "No code provided" });
 
   try {
-    // 1. Code ke badlay User Token mangwana
+    // 1. Token Exchange
     const formData = new URLSearchParams();
     formData.append('client_id', SLACK_CLIENT_ID);
     formData.append('client_secret', SLACK_CLIENT_SECRET);
@@ -32,11 +30,10 @@ export async function GET(req: Request) {
     const data = await response.json();
 
     if (!data.ok) {
-      console.error("Slack OAuth Error:", data.error);
       return NextResponse.json({ error: data.error }, { status: 400 });
     }
 
-    // 2. Token Save karna Firebase main
+    // 2. Save Data
     const userRes = await fetch(`https://slack.com/api/users.info?user=${data.authed_user.id}`, {
         headers: { Authorization: `Bearer ${data.authed_user.access_token}` }
     });
@@ -52,11 +49,11 @@ export async function GET(req: Request) {
 
     await setDoc(doc(db, "slack_tokens", data.authed_user.id), userData);
 
-    // Wapas Dashboard par bhejna
-    return NextResponse.redirect("https://slack-attendance.vercel.app/dm-manager?status=success");
+    // 3. MAGIC REDIRECT 🪄
+    // Hum dashboard par nahi bhejenge. Hum '/success' par bhejenge.
+    return NextResponse.redirect("https://slack-attendance.vercel.app/success");
 
   } catch (error) {
-    console.error("Callback Error:", error);
     return NextResponse.json({ error: "System Error" }, { status: 500 });
   }
 }
