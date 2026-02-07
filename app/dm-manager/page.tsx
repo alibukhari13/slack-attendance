@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/immutability */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/dm-manager/page.tsx
 
