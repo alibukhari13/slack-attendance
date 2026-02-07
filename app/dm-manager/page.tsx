@@ -45,6 +45,7 @@ export default function DMManager() {
 
   useEffect(() => {
     if (!activeChat) return;
+    // eslint-disable-next-line react-hooks/immutability
     loadMessages();
     const interval = setInterval(loadMessages, 3000);
     return () => clearInterval(interval);
