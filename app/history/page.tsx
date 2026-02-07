@@ -2,10 +2,12 @@
 // app/history/page.tsx
 "use client";
 import React, { useEffect, useState } from 'react';
-import { db } from '@/lib/firebase';
+// import { db } from '@/lib/firebase';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { Search, Calendar, Clock, MessageSquare, User, Filter, Download, ChevronDown, ChevronUp, Image as ImageIcon, Paperclip } from 'lucide-react';
-import { convertEmojis } from '@/utils/emojiConverter';
+import { db } from '../../lib/firebase';
+import { convertEmojis } from '../../utils/emojiConverter';
+// import { convertEmojis } from '@/utils/emojiConverter';
 
 interface Message {
   id: string;

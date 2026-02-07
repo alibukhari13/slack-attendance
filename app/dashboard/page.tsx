@@ -5,7 +5,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useEffect, useState, useMemo } from 'react';
-import { db } from '@/lib/firebase';
+// import { db } from '@/lib/firebase';
 import { collection, query, onSnapshot, orderBy, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { 
   Clock, 
@@ -50,6 +50,7 @@ import { saveAs } from 'file-saver';
 import { format, parseISO, isValid } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { db } from '../../lib/firebase';
 
 // Emoji mapping for Slack shortcodes
 const emojiMap: Record<string, string> = {
