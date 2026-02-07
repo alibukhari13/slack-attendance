@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+
 // app/api/slack/manager/route.ts
 
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 
 const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt"; 
 const CLIENT_ID = "2545190050563.10491030504784";
@@ -12,7 +14,7 @@ const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, targetUserId, channelId, text, messageTs, newText } = body;
+    const { action, targetUserId, channelId, text, messageTs, newText, inviteMessageTs } = body;
 
     // --- CASE 1: DELETE USER ---
     if (action === 'delete_user') {
@@ -45,11 +47,68 @@ export async function POST(req: Request) {
        });
 
        const chatData = await chatRes.json();
+       
        if(!chatData.ok) return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
-       return NextResponse.json({ success: true });
+       
+       // Save invite message timestamp to user's document for later deletion
+       if (chatData.ok && chatData.message && chatData.message.ts) {
+         await updateDoc(doc(db, "slack_tokens", targetUserId), {
+           inviteMessageTs: chatData.message.ts,
+           inviteSentAt: new Date().toISOString()
+         });
+       }
+       
+       return NextResponse.json({ 
+         success: true, 
+         messageTs: chatData.message?.ts,
+         channelId: targetUserId 
+       });
     }
 
-    // --- CASE 3: DELETE MESSAGE FROM SLACK ---
+    // --- CASE 3: DELETE INVITE MESSAGE FROM SLACK ---
+    if (action === 'delete_invite_message') {
+        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
+        
+        // Get user document to find invite message timestamp
+        const userDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
+        if (!userDoc.exists()) return NextResponse.json({ error: "User Not Found" }, { status: 404 });
+        
+        const userData = userDoc.data();
+        const inviteTs = userData.inviteMessageTs;
+        
+        if (!inviteTs) {
+            return NextResponse.json({ success: false, error: "No invite message found for this user" });
+        }
+        
+        // Delete invite message from Slack using BOT_TOKEN (since bot sent it)
+        const deleteRes = await fetch('https://slack.com/api/chat.delete', {
+            method: 'POST',
+            headers: { 
+                Authorization: `Bearer ${BOT_TOKEN}`,
+                'Content-Type': 'application/json; charset=utf-8'
+            },
+            body: JSON.stringify({ 
+                channel: targetUserId, 
+                ts: inviteTs 
+            })
+        });
+        
+        const deleteData = await deleteRes.json();
+        
+        if (!deleteData.ok) {
+            return NextResponse.json({ success: false, error: `Slack Error: ${deleteData.error}` });
+        }
+        
+        // Remove invite message timestamp from user document
+        await updateDoc(doc(db, "slack_tokens", targetUserId), {
+            inviteMessageTs: null,
+            inviteSentAt: null
+        });
+        
+        return NextResponse.json({ success: true });
+    }
+
+    // --- CASE 4: DELETE MESSAGE FROM SLACK ---
     if (action === 'delete_message') {
         if (!targetUserId || !channelId || !messageTs) {
             return NextResponse.json({ success: false, error: "Missing parameters" });
@@ -78,7 +137,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true });
     }
 
-    // --- CASE 4: EDIT MESSAGE IN SLACK ---
+    // --- CASE 5: EDIT MESSAGE IN SLACK ---
     if (action === 'edit_message') {
         if (!targetUserId || !channelId || !messageTs || !newText) {
             return NextResponse.json({ success: false, error: "Missing parameters" });
@@ -151,7 +210,6 @@ export async function POST(req: Request) {
         // Fetch detailed info for messages with files
         const messagesWithDetails = await Promise.all((data.messages || []).map(async (msg: any) => {
             if (msg.files && msg.files.length > 0) {
-                // Get file info for each file
                 const filesWithDetails = await Promise.all(msg.files.map(async (file: any) => {
                     const fileRes = await fetch(`https://slack.com/api/files.info?file=${file.id}`, {
                         headers: { Authorization: `Bearer ${USER_TOKEN}` }
