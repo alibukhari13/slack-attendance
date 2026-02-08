@@ -3,10 +3,10 @@ import { NextResponse } from 'next/server';
 import { db } from '../../../../lib/firebase';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
-const SLACK_CLIENT_ID = "2545190050563.10491030504784";
-const SLACK_CLIENT_SECRET = "3e386e8d575392781d507336f68e1619";
+const SLACK_CLIENT_ID = "2545190050563.10479083209969";
+const SLACK_CLIENT_SECRET = "341013fa407e9f9fc3e40f5cda72bd1d";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
-const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt"; // Message delete karne ke liye Bot Token chahiye
+const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U"; // Message delete karne ke liye Bot Token chahiye
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

@@ -6,8 +6,8 @@ import { db } from '../../../../lib/firebase';
 import { doc, getDoc, deleteDoc, setDoc, collection, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
 
 // 👇 APNI KEYS YAHAN DALAIN
-const BOT_TOKEN = "xoxb-2545190050563-10466352520084-6NyES55AgLJ6vzmQi4M5veYt"; 
-const CLIENT_ID = "2545190050563.10491030504784";
+const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U"; 
+const CLIENT_ID = "2545190050563.10479083209969";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
 // Helper function to save history (Same as before)
