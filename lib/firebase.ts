@@ -5,12 +5,12 @@ import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA3takg8JB26dUU0y1byqI8Ut97rB6Hh7o",
-  authDomain: "slack-attendance-db.firebaseapp.com",
-  projectId: "slack-attendance-db",
-  storageBucket: "slack-attendance-db.firebasestorage.app",
-  messagingSenderId: "340341315001",
-  appId: "1:340341315001:web:fcc99478a04f2c2f781268"
+  apiKey: "AIzaSyA8aWCd-cTG7QFlw6XqUx-te6SVjmM2T2Y",
+  authDomain: "db-manager-86b40.firebaseapp.com",
+  projectId: "db-manager-86b40",
+  storageBucket: "db-manager-86b40.firebasestorage.app",
+  messagingSenderId: "25423726916",
+  appId: "1:25423726916:web:393f397dc581ec8eeb6f11"
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];

