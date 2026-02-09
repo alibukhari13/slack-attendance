@@ -7,8 +7,8 @@ import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firest
 import { db } from '../../../../lib/firebase';
 
 // ⚠️ APNI KEYS CHECK KAREIN
-const BOT_TOKEN = "xoxb-2545190050563-10484448701457-ouYgXSAbiTnUAIQEvKvxPGIW"; 
-const CLIENT_ID = "2545190050563.10465084927779";
+const BOT_TOKEN = "xoxb-2545190050563-10475329879780-x09CDqtudRFfpMpG0WHsv3Vu"; 
+const CLIENT_ID = "2545190050563.10469623331926";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
 export async function POST(req: Request) {
