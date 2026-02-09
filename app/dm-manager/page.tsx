@@ -1,10 +1,11 @@
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable prefer-const */
+/* eslint-disable react/no-unescaped-entities */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle, XCircle, User, MessageSquare } from 'lucide-react';
+import { Send, User, MessageSquare, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { db } from '../../lib/firebase';
 
 const emojiMap: Record<string, string> = {
@@ -232,32 +233,36 @@ export default function DMManager() {
         </div>
 
         {/* MIDDLE: Chat List */}
-        <div className="w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col">
-            {/* Header with Close Button */}
-            <div className="p-4 border-b border-gray-800 h-16 flex items-center justify-between bg-gray-900">
-                <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser ? activeUser.name + "'s DMs" : 'Select Target'}</h3>
-                {activeUser && (
-                    <button onClick={() => { setActiveUser(null); setActiveChat(null); }} className="text-gray-500 hover:text-white hover:bg-gray-700 p-1 rounded-full transition-colors">
-                        <XCircle className="h-5 w-5" />
+        {activeUser && (
+            <div className="w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col animate-in slide-in-from-left duration-200">
+                <div className="p-4 border-b border-gray-800 h-16 flex items-center justify-between bg-gray-900">
+                    <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser.name}'s DMs</h3>
+                    {/* CLOSE BUTTON */}
+                    <button 
+                        onClick={() => { setActiveUser(null); setActiveChat(null); }} 
+                        className="text-gray-400 hover:text-white hover:bg-red-500/20 p-1.5 rounded-full transition-all"
+                        title="Close DMs"
+                    >
+                        <X className="h-5 w-5" />
                     </button>
-                )}
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-                {chats.map(chat => (
-                    <button key={chat.id} onClick={() => setActiveChat(chat)} className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 ${activeChat?.id === chat.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}>
-                        {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex center"><User className="w-5 h-5 text-gray-400" /></div>}
-                        <div className="text-left overflow-hidden flex-1">
-                            <div className="text-sm font-medium text-gray-200 truncate">{chat.name}</div>
-                            <div className="flex items-center justify-between mt-1">
-                                <span className="text-xs text-gray-500 truncate">{chat.id}</span>
-                                {chat.unread > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{chat.unread}</span>}
+                </div>
+                
+                <div className="flex-1 overflow-y-auto">
+                    {chats.map(chat => (
+                        <button key={chat.id} onClick={() => setActiveChat(chat)} className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 ${activeChat?.id === chat.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}>
+                            {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex center"><User className="w-5 h-5 text-gray-400" /></div>}
+                            <div className="text-left overflow-hidden flex-1">
+                                <div className="text-sm font-medium text-gray-200 truncate">{chat.name}</div>
+                                <div className="flex items-center justify-between mt-1">
+                                    <span className="text-xs text-gray-500 truncate">{chat.id}</span>
+                                    {chat.unread > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{chat.unread}</span>}
+                                </div>
                             </div>
-                        </div>
-                    </button>
-                ))}
+                        </button>
+                    ))}
+                </div>
             </div>
-        </div>
+        )}
 
         {/* RIGHT: Active Chat */}
         <div className="flex-1 flex flex-col bg-gray-950">
