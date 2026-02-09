@@ -8,10 +8,10 @@ import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firest
 import { db } from '../../../../lib/firebase';
 
 // ⚠️ KEYS (Make sure ye sahi hon)
-const SLACK_CLIENT_ID = "2545190050563.10479083209969";
-const SLACK_CLIENT_SECRET = "341013fa407e9f9fc3e40f5cda72bd1d";
+const SLACK_CLIENT_ID = "2545190050563.10465084927779";
+const SLACK_CLIENT_SECRET = "0926eb577bb4ca6058b7be66fed2bbd8";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
-const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U";
+const BOT_TOKEN = "xoxb-2545190050563-10484448701457-ouYgXSAbiTnUAIQEvKvxPGIW";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
