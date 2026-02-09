@@ -1,13 +1,10 @@
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable prefer-const */
-// app/dm-manager/page.tsx
-// (Replace complete file content)
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, User, MessageSquare, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle } from 'lucide-react';
+import { Send, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle, XCircle, User, MessageSquare } from 'lucide-react';
 import { db } from '../../lib/firebase';
 
 const emojiMap: Record<string, string> = {
@@ -60,17 +57,13 @@ export default function DMManager() {
         const unsub = onSnapshot(collection(db, "slack_tokens"), (snap) => {
             setConnectedUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
             setDbError(false);
-        }, (error) => {
-            console.error("DB Quota Error:", error);
-            setDbError(true);
-        });
+        }, () => { setDbError(true); });
         return () => unsub();
     } catch(e) { setDbError(true); }
   }, []);
 
   useEffect(() => {
     if (!activeUser) return;
-    // Chats ko bhi refresh karte raho taakay unread count update ho
     const fetchChats = () => {
         fetch('/api/slack/manager', {
             method: 'POST',
@@ -79,12 +72,10 @@ export default function DMManager() {
         .then(r => r.json())
         .then(d => {
             if(d.chats) setChats(d.chats);
-            else if(d.error?.includes("Quota")) setDbError(true);
         });
     };
-    
     fetchChats();
-    const chatInterval = setInterval(fetchChats, 10000); // Check unread every 10s
+    const chatInterval = setInterval(fetchChats, 10000); 
     return () => clearInterval(chatInterval);
   }, [activeUser]);
 
@@ -209,16 +200,7 @@ export default function DMManager() {
             <div className="p-4 border-b border-gray-800">
                 <h2 className="font-bold text-amber-500 flex items-center gap-2"><Shield className="h-5 w-5" /> Admin Panel</h2>
             </div>
-            {dbError && (
-                <div className="bg-red-900/50 p-3 m-2 rounded text-xs text-red-200 border border-red-500/50 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <div>
-                        <strong>Database Limit Reached!</strong>
-                        <br/>
-                        Create a new Firebase project to fix this immediately.
-                    </div>
-                </div>
-            )}
+            {dbError && <div className="bg-red-900/50 p-3 m-2 rounded text-xs text-red-200 border border-red-500/50 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /><strong>DB Limit Reached!</strong></div>}
             
             <div className="p-4 bg-gray-800/50 m-2 rounded-xl border border-gray-700">
                 <label className="text-xs text-gray-400 mb-2 block font-semibold">ADD TARGET</label>
@@ -234,8 +216,14 @@ export default function DMManager() {
                 {connectedUsers.map(u => (
                     <div key={u.id} onClick={() => { setActiveUser(u); setActiveChat(null); }} className={`group w-full flex items-center justify-between p-3 rounded-lg cursor-pointer mb-1 ${activeUser?.id === u.id ? 'bg-amber-500/20 border border-amber-500/50' : 'hover:bg-gray-800'}`}>
                         <div className="flex items-center gap-3">
-                            <img src={u.image} className="w-8 h-8 rounded-full bg-gray-700" />
-                            <div><div className="font-medium text-sm">{u.name}</div><div className="text-[10px] opacity-60">{u.id}</div></div>
+                            <div className="relative">
+                                <img src={u.image} className="w-8 h-8 rounded-full bg-gray-700" />
+                                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-gray-900"></div>
+                            </div>
+                            <div>
+                                <div className="font-medium text-sm">{u.name}</div>
+                                <div className="text-[10px] opacity-60">Connected</div>
+                            </div>
                         </div>
                         <button onClick={(e) => handleDeleteUser(u.id, e)} className="p-1.5 hover:bg-red-500/20 text-red-400 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button>
                     </div>
@@ -245,23 +233,25 @@ export default function DMManager() {
 
         {/* MIDDLE: Chat List */}
         <div className="w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col">
+            {/* Header with Close Button */}
             <div className="p-4 border-b border-gray-800 h-16 flex items-center justify-between bg-gray-900">
-                <h3 className="font-semibold text-gray-200">{activeUser ? activeUser.name + "'s DMs" : 'Select Target'}</h3>
+                <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser ? activeUser.name + "'s DMs" : 'Select Target'}</h3>
+                {activeUser && (
+                    <button onClick={() => { setActiveUser(null); setActiveChat(null); }} className="text-gray-500 hover:text-white hover:bg-gray-700 p-1 rounded-full transition-colors">
+                        <XCircle className="h-5 w-5" />
+                    </button>
+                )}
             </div>
+            
             <div className="flex-1 overflow-y-auto">
                 {chats.map(chat => (
                     <button key={chat.id} onClick={() => setActiveChat(chat)} className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 ${activeChat?.id === chat.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}>
                         {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex center"><User className="w-5 h-5 text-gray-400" /></div>}
                         <div className="text-left overflow-hidden flex-1">
                             <div className="text-sm font-medium text-gray-200 truncate">{chat.name}</div>
-                            {/* LIVE UNREAD COUNT */}
                             <div className="flex items-center justify-between mt-1">
                                 <span className="text-xs text-gray-500 truncate">{chat.id}</span>
-                                {chat.unread > 0 && (
-                                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-                                        {chat.unread}
-                                    </span>
-                                )}
+                                {chat.unread > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{chat.unread}</span>}
                             </div>
                         </div>
                     </button>
@@ -269,12 +259,13 @@ export default function DMManager() {
             </div>
         </div>
 
-        {/* RIGHT: Active Chat (Same as before) */}
+        {/* RIGHT: Active Chat */}
         <div className="flex-1 flex flex-col bg-gray-950">
             {activeChat ? (
                 <>
                     <div className="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/80 backdrop-blur-md sticky top-0 z-10">
                         <div className="font-bold text-lg">{activeChat.name} <span className="text-xs bg-red-900 text-red-200 px-2 rounded ml-2">LIVE</span></div>
+                        <button onClick={() => setActiveChat(null)} className="md:hidden text-gray-400"><X className="h-6 w-6" /></button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 scroll-smooth" ref={scrollContainerRef} onScroll={handleScroll}>
