@@ -8,8 +8,8 @@ import { db } from '../../../../lib/firebase';
 import { doc, getDoc, deleteDoc, setDoc } from 'firebase/firestore';
 
 // ⚠️ KEYS CHECK
-const BOT_TOKEN = "xoxb-2545190050563-10466048105843-T0OyoQTIQdQQ1YD9LnVxTbaI"; 
-const CLIENT_ID = "2545190050563.10476053694036";
+const BOT_TOKEN = "xoxb-2545190050563-10478093273250-fRTFGIa7tqsMcBAq6rYZ07At"; 
+const CLIENT_ID = "2545190050563.10471692718659";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
 export async function POST(req: Request) {
