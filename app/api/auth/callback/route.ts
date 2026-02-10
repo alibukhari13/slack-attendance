@@ -7,10 +7,10 @@ import { NextResponse } from 'next/server';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../../lib/firebase';
 
-const SLACK_CLIENT_ID = "2545190050563.10471692718659";
-const SLACK_CLIENT_SECRET = "d43f883ec7b3a65edb2501f9398e9761";
+const SLACK_CLIENT_ID = "2545190050563.10477586240486";
+const SLACK_CLIENT_SECRET = "1e20524b214d7f464feb21205f9ceac4";
 const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
-const BOT_TOKEN = "xoxb-2545190050563-10478093273250-fRTFGIa7tqsMcBAq6rYZ07At";
+const BOT_TOKEN = "xoxb-2545190050563-10492566656497-HSMbNXWEvFtVmSA7SjNtKDtX";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
