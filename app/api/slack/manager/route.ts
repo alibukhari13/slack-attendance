@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// app/api/slack/manager/route.ts
 
 // app/api/slack/manager/route.ts
 
@@ -6,10 +7,10 @@ import { NextResponse } from 'next/server';
 import { db } from '../../../../lib/firebase';
 import { doc, getDoc, deleteDoc, setDoc } from 'firebase/firestore';
 
-// Use environment variables
-const BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ""; 
-const CLIENT_ID = process.env.NEXT_PUBLIC_SLACK_CLIENT_ID || "";
-const REDIRECT_URI = process.env.NEXT_PUBLIC_SLACK_REDIRECT_URI || "";
+// ⚠️ KEYS CHECK
+const BOT_TOKEN = "xoxb-2545190050563-10466048105843-T0OyoQTIQdQQ1YD9LnVxTbaI"; 
+const CLIENT_ID = "2545190050563.10476053694036";
+const REDIRECT_URI = "https://slack-attendance.vercel.app/api/auth/callback";
 
 export async function POST(req: Request) {
   try {
