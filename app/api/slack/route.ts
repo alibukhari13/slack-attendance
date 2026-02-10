@@ -1,14 +1,12 @@
-//app/api/slack/route.ts
-
 import { NextResponse } from 'next/server';
-// import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || "xoxb-10369585956705-10354644583366-EZlwC8OK1NTuHVU6cAOqTQV1";
-const CHECK_IN_CHANNEL = process.env.CHECK_IN_CHANNEL || "C0ABB105W3S";
-const CHECK_OUT_CHANNEL = process.env.CHECK_OUT_CHANNEL || "C0AAGM79J6N";
-const LEAVE_CHANNEL = process.env.LEAVE_CHANNEL || "C0AACUQMB9D";
+// Use environment variables
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || "";
+const CHECK_IN_CHANNEL = process.env.CHECK_IN_CHANNEL || "";
+const CHECK_OUT_CHANNEL = process.env.CHECK_OUT_CHANNEL || "";
+const LEAVE_CHANNEL = process.env.LEAVE_CHANNEL || "";
 
 // Enhanced emoji mapping
 const emojiMap: Record<string, string> = {
