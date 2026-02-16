@@ -1,5 +1,4 @@
-//app/dm-manager/page.ts
-
+//app/dm-manager/page.tsx
 
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable prefer-const */
@@ -197,10 +196,10 @@ export default function DMManager() {
   });
 
   return (
-    <div className="flex h-screen bg-black text-white font-sans overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen bg-black text-white font-sans overflow-hidden">
         
-        {/* LEFT: Sidebar */}
-        <div className="w-80 bg-gray-900 border-r border-gray-800 flex flex-col">
+        {/* LEFT: Sidebar - hidden on mobile when a user is selected */}
+        <div className={`w-full md:w-80 bg-gray-900 border-r border-gray-800 flex flex-col ${activeUser ? 'hidden md:flex' : ''}`}>
             <div className="p-4 border-b border-gray-800">
                 <h2 className="font-bold text-amber-500 flex items-center gap-2"><Shield className="h-5 w-5" /> Admin Panel</h2>
             </div>
@@ -235,12 +234,12 @@ export default function DMManager() {
             </div>
         </div>
 
-        {/* MIDDLE: Chat List */}
+        {/* MIDDLE: Chat List - hidden on mobile when a chat is selected */}
         {activeUser && (
-            <div className="w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col animate-in slide-in-from-left duration-200">
+            <div className={`w-full md:w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col animate-in slide-in-from-left duration-200 ${activeChat ? 'hidden md:flex' : ''}`}>
                 <div className="p-4 border-b border-gray-800 h-16 flex items-center justify-between bg-gray-900">
                     <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser.name}'s DMs</h3>
-                    {/* CLOSE BUTTON */}
+                    {/* CLOSE BUTTON (visible on all screens, on mobile it serves as back to users) */}
                     <button 
                         onClick={() => { setActiveUser(null); setActiveChat(null); }} 
                         className="text-gray-400 hover:text-white hover:bg-red-500/20 p-1.5 rounded-full transition-all"
@@ -267,13 +266,16 @@ export default function DMManager() {
             </div>
         )}
 
-        {/* RIGHT: Active Chat */}
-        <div className="flex-1 flex flex-col bg-gray-950">
+        {/* RIGHT: Active Chat - always visible when selected, full width on mobile */}
+        <div className="flex-1 w-full md:flex-1 flex flex-col bg-gray-950">
             {activeChat ? (
                 <>
                     <div className="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/80 backdrop-blur-md sticky top-0 z-10">
                         <div className="font-bold text-lg">{activeChat.name} <span className="text-xs bg-red-900 text-red-200 px-2 rounded ml-2">LIVE</span></div>
-                        <button onClick={() => setActiveChat(null)} className="md:hidden text-gray-400"><X className="h-6 w-6" /></button>
+                        {/* Back to chats button - visible only on mobile */}
+                        <button onClick={() => setActiveChat(null)} className="md:hidden text-gray-400 hover:text-white">
+                            <X className="h-6 w-6" />
+                        </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 scroll-smooth" ref={scrollContainerRef} onScroll={handleScroll}>
