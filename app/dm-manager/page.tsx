@@ -1,13 +1,11 @@
-//app/dm-manager/page.tsx
-
 /* eslint-disable react-hooks/immutability */
 /* eslint-disable prefer-const */
-/* eslint-disable react/no-unescaped-entities */
+/* eslint-disable react/jsx-no-undef */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { Send, User, MessageSquare, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle, XCircle } from 'lucide-react';
+import { Send, User, Shield, Link as LinkIcon, Trash2, Edit2, X, Check, Image as ImageIcon, FileText, Download, AlertTriangle, Search, Mic, MessageSquare } from 'lucide-react';
 import { db } from '../../lib/firebase';
 
 const emojiMap: Record<string, string> = {
@@ -39,7 +37,11 @@ const getFormattedTime = (ts: string) => {
 export default function DMManager() {
   const [connectedUsers, setConnectedUsers] = useState<any[]>([]);
   const [activeUser, setActiveUser] = useState<any>(null);
+  
   const [chats, setChats] = useState<any[]>([]);
+  const [directory, setDirectory] = useState<any[]>([]);
+  const [filteredList, setFilteredList] = useState<any[]>([]);
+  
   const [activeChat, setActiveChat] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
@@ -47,6 +49,7 @@ export default function DMManager() {
   const [inviteId, setInviteId] = useState('');
   const [inviteStatus, setInviteStatus] = useState<{msg: string, type: string}>({msg: '', type: ''});
   const [dbError, setDbError] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState('');
@@ -74,13 +77,75 @@ export default function DMManager() {
         })
         .then(r => r.json())
         .then(d => {
-            if(d.chats) setChats(d.chats);
+            if(d.chats) {
+                setChats(d.chats);
+                setDirectory(d.directory || []);
+                setFilteredList(d.chats);
+            }
         });
     };
     fetchChats();
     const chatInterval = setInterval(fetchChats, 10000); 
     return () => clearInterval(chatInterval);
   }, [activeUser]);
+
+  useEffect(() => {
+      if (!searchTerm) {
+          setFilteredList(chats);
+      } else {
+          const lowerTerm = searchTerm.toLowerCase();
+          const results = directory.filter(u => u.name.toLowerCase().includes(lowerTerm));
+          setFilteredList(results);
+      }
+  }, [searchTerm, chats, directory]);
+
+  // HANDLE CHAT SELECT (FIXED)
+  const handleChatSelect = async (item: any) => {
+      // 1. Existing Chat
+      if (item.id && (item.id.startsWith('D') || item.id.startsWith('C'))) {
+          setActiveChat(item);
+          setSearchTerm('');
+          return;
+      }
+
+      // 2. New Chat from Directory
+      setLoadingMsg(true);
+      const existingChat = chats.find(c => c.otherUserId === item.id);
+      if(existingChat) {
+          setActiveChat(existingChat);
+          setLoadingMsg(false);
+          setSearchTerm('');
+          return;
+      }
+
+      try {
+          const res = await fetch('/api/slack/manager', {
+              method: 'POST',
+              body: JSON.stringify({ 
+                  action: 'open_chat', 
+                  targetUserId: activeUser.id, 
+                  otherUserId: item.id 
+              })
+          });
+          const data = await res.json();
+          
+          if (data.channel) {
+              const newChatObj = {
+                  id: data.channel.id, 
+                  name: item.name,
+                  image: item.image,
+                  otherUserId: item.id
+              };
+              setActiveChat(newChatObj);
+              setChats(prev => [newChatObj, ...prev]);
+          } else {
+              alert("Error Opening Chat: " + (data.error || "Unknown Error"));
+          }
+      } catch (e) { console.error(e); }
+      
+      setLoadingMsg(false);
+      setSearchTerm('');
+  };
 
   useEffect(() => {
     if (!activeChat) return;
@@ -143,9 +208,9 @@ export default function DMManager() {
         if (part.match(/<@[A-Z0-9]+>/)) {
             const userId = part.replace(/[<@>]/g, '');
             let userName = `@${userId}`;
-            const connectedUser = connectedUsers.find(u => u.id === userId);
-            if (connectedUser) userName = `@${connectedUser.name}`;
-            else if (activeChat?.user === userId) userName = `@${activeChat.name}`;
+            const dirUser = directory.find(u => u.id === userId);
+            if (dirUser) userName = `@${dirUser.name}`;
+            else if (activeChat?.otherUserId === userId) userName = `@${activeChat.name}`;
             else if (activeUser?.id === userId) userName = `@${activeUser.name}`;
             return <span key={index} className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded mx-0.5 font-medium text-xs"> {userName} </span>;
         }
@@ -196,10 +261,10 @@ export default function DMManager() {
   });
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-black text-white font-sans overflow-hidden">
+    <div className="flex h-screen bg-black text-white font-sans overflow-hidden">
         
-        {/* LEFT: Sidebar - hidden on mobile when a user is selected */}
-        <div className={`w-full md:w-80 bg-gray-900 border-r border-gray-800 flex flex-col ${activeUser ? 'hidden md:flex' : ''}`}>
+        {/* LEFT: Sidebar */}
+        <div className="w-80 bg-gray-900 border-r border-gray-800 flex flex-col">
             <div className="p-4 border-b border-gray-800">
                 <h2 className="font-bold text-amber-500 flex items-center gap-2"><Shield className="h-5 w-5" /> Admin Panel</h2>
             </div>
@@ -219,14 +284,8 @@ export default function DMManager() {
                 {connectedUsers.map(u => (
                     <div key={u.id} onClick={() => { setActiveUser(u); setActiveChat(null); }} className={`group w-full flex items-center justify-between p-3 rounded-lg cursor-pointer mb-1 ${activeUser?.id === u.id ? 'bg-amber-500/20 border border-amber-500/50' : 'hover:bg-gray-800'}`}>
                         <div className="flex items-center gap-3">
-                            <div className="relative">
-                                <img src={u.image} className="w-8 h-8 rounded-full bg-gray-700" />
-                                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-gray-900"></div>
-                            </div>
-                            <div>
-                                <div className="font-medium text-sm">{u.name}</div>
-                                <div className="text-[10px] opacity-60">Connected</div>
-                            </div>
+                            <img src={u.image} className="w-8 h-8 rounded-full bg-gray-700" />
+                            <div><div className="font-medium text-sm">{u.name}</div><div className="text-[10px] opacity-60">Connected</div></div>
                         </div>
                         <button onClick={(e) => handleDeleteUser(u.id, e)} className="p-1.5 hover:bg-red-500/20 text-red-400 opacity-0 group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button>
                     </div>
@@ -234,48 +293,45 @@ export default function DMManager() {
             </div>
         </div>
 
-        {/* MIDDLE: Chat List - hidden on mobile when a chat is selected */}
+        {/* MIDDLE: Search & Chat List */}
         {activeUser && (
-            <div className={`w-full md:w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col animate-in slide-in-from-left duration-200 ${activeChat ? 'hidden md:flex' : ''}`}>
-                <div className="p-4 border-b border-gray-800 h-16 flex items-center justify-between bg-gray-900">
-                    <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser.name}'s DMs</h3>
-                    {/* CLOSE BUTTON (visible on all screens, on mobile it serves as back to users) */}
-                    <button 
-                        onClick={() => { setActiveUser(null); setActiveChat(null); }} 
-                        className="text-gray-400 hover:text-white hover:bg-red-500/20 p-1.5 rounded-full transition-all"
-                        title="Close DMs"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
+            <div className="w-80 bg-gray-900/50 border-r border-gray-800 flex flex-col animate-in slide-in-from-left duration-200">
+                <div className="p-4 border-b border-gray-800">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold text-gray-200 truncate pr-2">{activeUser.name}&apos;s DMs</h3>
+                        <button onClick={() => { setActiveUser(null); setActiveChat(null); }} className="text-gray-400 hover:text-white hover:bg-red-500/20 p-1.5 rounded-full transition-all"><X className="h-5 w-5" /></button>
+                    </div>
+                    {/* SEARCH BAR */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
+                        <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Search directory..." />
+                    </div>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto">
-                    {chats.map(chat => (
-                        <button key={chat.id} onClick={() => setActiveChat(chat)} className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 ${activeChat?.id === chat.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}>
-                            {chat.image ? <img src={chat.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex center"><User className="w-5 h-5 text-gray-400" /></div>}
+                    {filteredList.map(item => (
+                        <button key={item.id} onClick={() => handleChatSelect(item)} className={`w-full p-4 border-b border-gray-800/50 flex items-center gap-3 hover:bg-gray-800/50 ${activeChat?.id === item.id ? 'bg-blue-500/10 border-l-2 border-l-blue-500' : ''}`}>
+                            {item.image ? <img src={item.image} className="w-9 h-9 rounded-lg" /> : <div className="w-9 h-9 bg-gray-700 rounded-lg flex center"><User className="w-5 h-5 text-gray-400" /></div>}
                             <div className="text-left overflow-hidden flex-1">
-                                <div className="text-sm font-medium text-gray-200 truncate">{chat.name}</div>
+                                <div className="text-sm font-medium text-gray-200 truncate">{item.name}</div>
                                 <div className="flex items-center justify-between mt-1">
-                                    <span className="text-xs text-gray-500 truncate">{chat.id}</span>
-                                    {chat.unread > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{chat.unread}</span>}
+                                    <span className="text-xs text-gray-500 truncate">{item.id.startsWith('U') ? 'Click to open' : item.id}</span>
                                 </div>
                             </div>
                         </button>
                     ))}
+                    {filteredList.length === 0 && <div className="p-4 text-center text-gray-500 text-sm">No user found</div>}
                 </div>
             </div>
         )}
 
-        {/* RIGHT: Active Chat - always visible when selected, full width on mobile */}
-        <div className="flex-1 w-full md:flex-1 flex flex-col bg-gray-950">
+        {/* RIGHT: Active Chat */}
+        <div className="flex-1 flex flex-col bg-gray-950">
             {activeChat ? (
                 <>
                     <div className="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/80 backdrop-blur-md sticky top-0 z-10">
                         <div className="font-bold text-lg">{activeChat.name} <span className="text-xs bg-red-900 text-red-200 px-2 rounded ml-2">LIVE</span></div>
-                        {/* Back to chats button - visible only on mobile */}
-                        <button onClick={() => setActiveChat(null)} className="md:hidden text-gray-400 hover:text-white">
-                            <X className="h-6 w-6" />
-                        </button>
+                        <button onClick={() => setActiveChat(null)} className="md:hidden text-gray-400"><X className="h-6 w-6" /></button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 scroll-smooth" ref={scrollContainerRef} onScroll={handleScroll}>
@@ -311,22 +367,34 @@ export default function DMManager() {
                                                             <div className="flex flex-col gap-2">
                                                                 {m.files && m.files.map((file: any, fIdx: number) => {
                                                                     const downloadLink = getDownloadUrl(file.url_private);
-                                                                    return (
-                                                                        <div key={fIdx} className="mb-2">
-                                                                            {file.mimetype?.startsWith('image') ? (
-                                                                                <a href={downloadLink} target="_blank" rel="noopener noreferrer" className="block relative group cursor-pointer">
-                                                                                    <img src={downloadLink} alt="Loading..." className="rounded-lg max-h-60 border border-white/10 min-w-[150px] min-h-[100px] bg-black/20" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg"><Download className="h-8 w-8 text-white drop-shadow-lg" /></div>
-                                                                                </a>
-                                                                            ) : (
-                                                                                <a href={downloadLink} target="_blank" className="flex items-center gap-3 bg-black/30 p-3 rounded-lg border border-white/10 hover:bg-black/50 transition-colors">
-                                                                                    <div className="bg-blue-500/20 p-2 rounded"><FileText className="h-5 w-5 text-blue-300" /></div>
-                                                                                    <div className="flex-1 overflow-hidden"><div className="truncate text-sm font-medium">{file.name}</div><div className="text-[10px] opacity-60">{file.filetype}</div></div>
-                                                                                    <Download className="h-4 w-4 text-gray-400" />
-                                                                                </a>
-                                                                            )}
-                                                                        </div>
-                                                                    );
+                                                                    // VOICE MSG / AUDIO
+                                                                    if (file.mimetype?.startsWith('audio/') || file.filetype === 'm4a' || file.filetype === 'webm') {
+                                                                        return (
+                                                                            <div key={fIdx} className="mb-2 bg-black/30 p-2 rounded-lg border border-white/10">
+                                                                                <div className="flex items-center gap-2 mb-1"><Mic className="h-4 w-4 text-green-400" /><span className="text-xs text-gray-300">Voice Message</span></div>
+                                                                                <audio controls src={downloadLink} className="w-full h-8" />
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    // IMAGE
+                                                                    else if (file.mimetype?.startsWith('image')) {
+                                                                        return (
+                                                                            <a key={fIdx} href={downloadLink} target="_blank" rel="noopener noreferrer" className="block relative group cursor-pointer mb-2">
+                                                                                <img src={downloadLink} alt="Img" className="rounded-lg max-h-60 border border-white/10 min-w-[150px] min-h-[100px] bg-black/20" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg"><Download className="h-8 w-8 text-white drop-shadow-lg" /></div>
+                                                                            </a>
+                                                                        );
+                                                                    } 
+                                                                    // OTHER FILES
+                                                                    else {
+                                                                        return (
+                                                                            <a key={fIdx} href={downloadLink} target="_blank" className="flex items-center gap-3 bg-black/30 p-3 rounded-lg border border-white/10 hover:bg-black/50 transition-colors mb-2">
+                                                                                <div className="bg-blue-500/20 p-2 rounded"><FileText className="h-5 w-5 text-blue-300" /></div>
+                                                                                <div className="flex-1 overflow-hidden"><div className="truncate text-sm font-medium">{file.name}</div><div className="text-[10px] opacity-60">{file.filetype}</div></div>
+                                                                                <Download className="h-4 w-4 text-gray-400" />
+                                                                            </a>
+                                                                        );
+                                                                    }
                                                                 })}
                                                                 <div className="whitespace-pre-wrap leading-relaxed break-words">{formatMessageText(m.text)}</div>
                                                                 <div className="text-[10px] opacity-60 flex justify-end gap-1 mt-0.5 select-none">{getFormattedTime(m.ts)} {isMe && <span className="opacity-80">✓</span>}</div>
